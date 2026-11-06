@@ -101,31 +101,25 @@
 
   </div>
 
-  <!-- 各账号积分 + 到期明细，按账号折叠。
-       为什么合并成一个区块：原来分成「各账号积分」和「到期日历」两栏，
-       账号一多右边会拉成很长一条，左边却固定高度 —— 两栏必然失衡。
-       而且这两块本来就是同一份数据的两种视角，拆开反而让人来回对照。 -->
-  <section id="credits-accounts" class="rise mt-10 hidden" style="animation-delay:120ms" aria-labelledby="cred-acc-h">
+  <!-- 账号列表。每行就是一个账号的完整档案：签到状态、积分余额、到期明细。
+       不再单独放「各账号积分」区块 —— 同一个账号在两处出现，用户得来回对照，
+       而且账号一多，两个列表各自滚动，找起来更累。
+       积分信息直接并进这一行，点开看包级到期。 -->
+  <section class="rise mt-10" style="animation-delay:120ms" aria-labelledby="acc-h">
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-3">
-      <h2 id="cred-acc-h" class="text-[0.78rem] font-medium text-ink-2">各账号积分</h2>
-      <span class="text-[0.72rem] text-ink-3">按剩余从少到多 · 点开看到期明细</span>
-    </div>
-    <div id="cred-list" class="border-y border-rule"></div>
-  </section>
-
-  <!-- 账号 -->
-  <section class="rise mt-10" style="animation-delay:140ms" aria-labelledby="acc-h">
-    <div class="mb-3 flex items-baseline justify-between gap-3">
-      <h2 id="acc-h" class="text-[0.78rem] font-medium text-ink-2">
-        账号 <span id="acc-count" class="ml-1 font-mono text-ink-3"></span>
-      </h2>
+      <div class="flex items-baseline gap-2.5">
+        <h2 id="acc-h" class="text-[0.78rem] font-medium text-ink-2">
+          账号 <span id="acc-count" class="ml-1 font-mono text-ink-3"></span>
+        </h2>
+        <span class="text-[0.72rem] text-ink-3">点开看到期明细</span>
+      </div>
       <div class="flex gap-2">
         <button id="btn-add" class="btn btn-primary">添加账号</button>
         <button id="btn-refresh" class="btn btn-quiet" aria-label="刷新账号列表">刷新</button>
       </div>
     </div>
 
-    <div id="accounts" class="divide-y divide-rule border-y border-rule">
+    <div id="accounts" class="border-y border-rule">
       <p class="py-6 text-[0.8rem] text-ink-3">正在读取账号…</p>
     </div>
 
@@ -204,12 +198,56 @@
 }
 
 /* 账号行：左身份、右操作。用账本的横线分隔，不用卡片阴影。 */
+/* 账号行。左侧档案、右上角删除 + 展开箭头。
+   删除按钮和箭头都绝对定位 —— 放进 flex 流会被内容长度挤到奇怪位置，
+   而且点删除会顺带触发折叠。 */
 .acct {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  position: relative;
+  display: block;
   padding: 0.95rem 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.acct:last-child {
+  border-bottom: 0;
+}
+.acct-summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 160ms ease;
+}
+.acct-summary::-webkit-details-marker {
+  display: none;
+}
+.acct-summary:hover {
+  background: var(--color-paper-2);
+}
+/* 展开指示：右上角，删除按钮左侧 */
+.acct-summary::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 1.15rem;
+  width: 0;
+  height: 0;
+  border-top: 4px solid var(--color-ink-3);
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  transform: rotate(-90deg);
+  transition: transform 200ms ease, border-top-color 160ms ease;
+}
+.acct-expandable[open] > .acct-summary::after {
+  transform: rotate(0deg);
+  border-top-color: var(--color-seal-soft);
+}
+.acct-summary:hover::after {
+  border-top-color: var(--color-ink-2);
+}
+/* 删除按钮：右上角，与箭头水平对齐 */
+.acct-del {
+  position: absolute;
+  right: 1.15rem;
+  top: 0.75rem;
 }
 .acct-name {
   font-size: 0.9rem;
@@ -317,60 +355,10 @@
   border-color: #463c31;
 }
 
-/* 积分行折叠。默认只看「谁快用完了」，点开看「哪笔什么时候过期」。
-   账号多时全摊开就是几十条，翻起来找不到重点。 */
-.cred-row {
-  border-bottom: 1px solid var(--color-rule);
-}
-.cred-row:last-child {
-  border-bottom: 0;
-}
-.cred-summary {
-  position: relative;
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.7rem 0.25rem 0.7rem 0;
-  cursor: pointer;
-  list-style: none;
-  transition: background-color 160ms ease;
-}
-.cred-summary::-webkit-details-marker {
-  display: none;
-}
-/* 展开指示。用 CSS 画的三角而不是字符 —— 字符在不同字体下大小不一，
-   而且会被屏幕阅读器念出来（summary 本身已经有语义了）。
-   绝对定位到标题行的右侧，而不是跟在 flex 流末尾 —— 后者会被挤到
-   内容块底部，看起来像另一个东西。
-   折叠时指向右（▶ 表示「可展开」），展开时指向下（▼ 表示「已展开」）。 */
-.cred-summary::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 0.95rem;
-  width: 0;
-  height: 0;
-  border-top: 4px solid var(--color-ink-3);
-  border-left: 3.5px solid transparent;
-  border-right: 3.5px solid transparent;
-  transform: rotate(-90deg);
-  transition: transform 200ms ease, border-top-color 160ms ease;
-}
-.cred-row[open] > .cred-summary::after {
-  transform: rotate(0deg);
-  border-top-color: var(--color-seal-soft);
-}
-.cred-summary:hover {
-  background: var(--color-paper-2);
-}
-.cred-summary:hover::after {
-  border-top-color: var(--color-ink-2);
-}
-.cred-row[open] > .cred-summary {
-  background: var(--color-paper-2);
-}
+/* 积分明细（展开区）。放在账号行下面，缩进对齐内容列而不是整行，
+   这样能看出它属于上面那个账号。 */
 .cred-detail {
-  padding: 0.5rem 0.25rem 0.85rem;
+  padding: 0 0 0.85rem;
 }
 
 /* 最近一轮的每条结果 */
@@ -525,6 +513,8 @@ function toDateStr(d) {
      最近到期  哪笔钱快作废了（积分会过期，不提醒就等于白薅）
      逐账号    谁快用完了（按剩余从少到多，最需要关注的排最前）
    拆成独立区块而不是一个大列表：账号一多，混在一起的列表会失去重点。 */
+/* 积分合计。只算总数，逐账号明细并进账号列表 ——
+   同一个账号在两处出现会让人来回对照，账号一多两个列表各自滚动更累。 */
 function renderCredits(accounts) {
   const num = (v) => Number(v || 0).toLocaleString('zh-CN', {
     minimumFractionDigits: 0,
@@ -533,15 +523,12 @@ function renderCredits(accounts) {
 
   const withCredits = accounts.filter((a) => a.credits && a.credits.total);
   const summaryBox = $('credits-summary');
-  const listBox = $('credits-accounts');
 
   if (!withCredits.length) {
     summaryBox.classList.add('hidden');
-    listBox.classList.add('hidden');
     return;
   }
   summaryBox.classList.remove('hidden');
-  listBox.classList.remove('hidden');
 
   const sumRemain = withCredits.reduce((s, a) => s + Number(a.credits.remain || 0), 0);
   const sumUsed = withCredits.reduce((s, a) => s + Number(a.credits.used || 0), 0);
@@ -552,7 +539,7 @@ function renderCredits(accounts) {
   $('cred-used').textContent = num(sumUsed);
   $('cred-total').textContent = num(sumTotal);
 
-  // --- 最近到期：跨所有账号取最早的那一笔 ---
+  // 最近到期：跨所有账号取最早的那一笔。这是「什么时候会损失额度」的总答案。
   const expiries = withCredits
     .map((a) => a.credits.nearestExpiry)
     .filter(Boolean)
@@ -573,86 +560,27 @@ function renderCredits(accounts) {
     expiryBox.classList.add('hidden');
   }
 
-  // --- 逐账号：每行可折叠，展开看到期明细 ---
-  //
-  // 为什么折叠而不是摊平：一个账号可能有好几个积分包，账号多了全摊开就是
-  // 几十条，翻起来找不到重点。折叠后默认只看「谁快用完了」，
-  // 想知道「哪笔什么时候过期」再点开那一个账号。
-  const sorted = [...withCredits].sort(
-    (a, b) => Number(a.credits.remain || 0) - Number(b.credits.remain || 0)
-  );
-
-  $('cred-list').innerHTML = sorted.map((a, index) => {
-    const c = a.credits;
-    const cap = Number(c.remain || 0) + Number(c.used || 0);
-    const pct = cap > 0 ? Math.max(0, Math.min(100, (Number(c.remain || 0) / cap) * 100)) : 0;
-    // 剩余不到 10% 时条子转告警色：这个账号马上就要用不了了。
-    const low = pct < 10;
-    const barColor = low ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)';
-
-    // 包级明细：只留还有余额的，已过期的单独标出来。
-    const packages = (c.packages || [])
-      .filter((p) => p.expiresAt && Number(p.remain || 0) > 0)
-      .sort((x, y) => (x.expiresAt || '').localeCompare(y.expiresAt || ''));
-
-    const nearest = c.nearestExpiry;
-    const nearestDays = nearest ? nearest.daysLeft : null;
-    const urgentNearest = typeof nearestDays === 'number' && nearestDays <= 7;
-
-    // 摘要行右侧的到期提示：没有包信息时退回到 nearestExpiry。
-    const expiryHint = nearest
-      ? `${nearest.expiresAt}${typeof nearestDays === 'number' ? ` · 剩 ${nearestDays} 天` : ''}`
-      : '';
-
-    const detail = packages.length
-      ? packages.map((p) => {
-          const d = p.daysLeft;
-          const urgent = typeof d === 'number' && d <= 7;
-          const expired = typeof d === 'number' && d < 0;
-          const tone = expired ? 'text-seal-soft' : (urgent ? 'text-amber-soft' : 'text-ink-3');
-          const tail = expired ? '已过期' : (typeof d === 'number' ? `剩 ${d} 天` : '');
-          const ppct = p.total > 0 ? Math.max(0, Math.min(100, (p.remain / p.total) * 100)) : 0;
-          return `<div class="flex items-baseline justify-between gap-3">
-            <span class="min-w-0 truncate text-[0.72rem] text-ink-3">${esc(p.name)}</span>
-            <span class="shrink-0 font-mono text-[0.72rem] ${tone} tabular-nums">
-              ${num(p.remain)}
-              <span class="ml-2 text-ink-3">${esc(p.expiresAt)}</span>
-              ${tail ? `<span class="ml-1">${tail}</span>` : ''}
-            </span>
-          </div>
-          <div class="cred-bar mt-1 mb-2.5"><span style="width:${ppct}%;background:${urgent || expired ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)'}"></span></div>`;
-        }).join('')
-      : '<div class="text-[0.72rem] text-ink-3">这个账号没有可显示的积分包明细。</div>';
-
-    return `<details class="cred-row" ${index === 0 ? 'open' : ''}>
-      <summary class="cred-summary">
-        <div class="min-w-0 flex-1 pr-5">
-          <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <div class="flex items-baseline gap-2">
-              <span class="text-[0.82rem] font-semibold text-ink">${esc(a.nickname || a.uid || '未命名')}</span>
-              ${c.plan ? `<span class="tag tag-quiet">${esc(c.plan)}</span>` : ''}
-            </div>
-            <div class="flex items-baseline gap-1.5">
-              <span class="font-mono text-[0.95rem] font-semibold ${low ? 'text-seal-soft' : 'text-ink'} tabular-nums">${num(c.remain)}</span>
-              <span class="font-mono text-[0.68rem] text-ink-3 tabular-nums">/ ${num(cap)}</span>
-            </div>
-          </div>
-          <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${barColor}"></span></div>
-          ${expiryHint ? `<div class="mt-1.5 font-mono text-[0.66rem] ${urgentNearest ? 'text-amber-soft' : 'text-ink-3'}">最近 ${expiryHint}</div>` : ''}
-        </div>
-      </summary>
-      <div class="cred-detail">${detail}</div>
-    </details>`;
-  }).join('');
-
   const at = withCredits[0].credits.at
     ? new Date(withCredits[0].credits.at).toLocaleString('zh-CN', { hour12: false })
     : '';
   $('cred-note').textContent = at ? `更新于 ${at}` : '';
 }
 
+/* 账号列表。每行是一个账号的完整档案：
+     左侧  昵称、标签、uid、签到状态
+     右侧  积分余额 + 最近到期
+   点开看该账号的包级到期明细。
+
+   为什么积分并进这里而不是单独一个列表：同一个账号出现在两处，用户得来回
+   对照「这个号余额多少」和「这个号签到了没」。账号一多，两个列表各自滚动
+   更找不到东西。一行装完最省心。 */
 function renderAccounts(accounts) {
   const box = $('accounts');
+  const num = (v) => Number(v || 0).toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+
   $('acc-count').textContent = accounts.length ? `(${accounts.length})` : '';
 
   if (!accounts.length) {
@@ -672,20 +600,86 @@ function renderAccounts(accounts) {
       ? `${esc(a.lastCheckinDate || '')} · ${esc(a.lastCheckinResult)} · ${esc(a.lastCheckinMessage || '')}`
       : '今日未签';
 
-    return `<div class="acct">
-      <div class="min-w-0 flex-1">
-        <div class="acct-name">${esc(a.nickname || a.uid || '未命名')}${tags.join('')}</div>
-        <div class="acct-meta">${esc(a.uid || a.id)}${a.domain ? ' · ' + esc(a.domain) : ''}</div>
-        <div class="acct-state">${state}</div>
-      </div>
-      <div class="flex flex-col items-end gap-1.5">
-        <button class="btn btn-danger" data-del="${esc(a.id)}">删除</button>
-      </div>
-    </div>`;
+    // --- 积分摘要 ---
+    const c = a.credits && a.credits.total ? a.credits : null;
+    let creditsBlock = '';
+    if (c) {
+      const cap = Number(c.remain || 0) + Number(c.used || 0);
+      const pct = cap > 0 ? Math.max(0, Math.min(100, (Number(c.remain || 0) / cap) * 100)) : 0;
+      // 剩余不到 10% 时转告警色：这个账号马上就要用不了了。
+      const low = pct < 10;
+      const barColor = low ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)';
+      const nearest = c.nearestExpiry;
+      const nearestDays = nearest ? nearest.daysLeft : null;
+      const urgent = typeof nearestDays === 'number' && nearestDays <= 7;
+      const hint = nearest
+        ? `最近 ${nearest.expiresAt}${typeof nearestDays === 'number' ? ` · 剩 ${nearestDays} 天` : ''}`
+        : '';
+
+      creditsBlock = `<div class="mt-2">
+        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span class="font-mono text-[0.92rem] font-semibold ${low ? 'text-seal-soft' : 'text-ink'} tabular-nums">${num(c.remain)}</span>
+          <span class="font-mono text-[0.66rem] text-ink-3 tabular-nums">/ ${num(cap)}</span>
+          ${c.plan ? `<span class="tag tag-quiet">${esc(c.plan)}</span>` : ''}
+        </div>
+        <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${barColor}"></span></div>
+        ${hint ? `<div class="mt-1.5 font-mono text-[0.66rem] ${urgent ? 'text-amber-soft' : 'text-ink-3'}">${hint}</div>` : ''}
+      </div>`;
+    }
+
+    // --- 包级到期明细（展开才显示）---
+    const packages = c
+      ? (c.packages || [])
+          .filter((p) => p.expiresAt && Number(p.remain || 0) > 0)
+          .sort((x, y) => (x.expiresAt || '').localeCompare(y.expiresAt || ''))
+      : [];
+
+    const detail = packages.length
+      ? packages.map((p) => {
+          const d = p.daysLeft;
+          const pkUrgent = typeof d === 'number' && d <= 7;
+          const expired = typeof d === 'number' && d < 0;
+          const tone = expired ? 'text-seal-soft' : (pkUrgent ? 'text-amber-soft' : 'text-ink-3');
+          const tail = expired ? '已过期' : (typeof d === 'number' ? `剩 ${d} 天` : '');
+          const ppct = p.total > 0 ? Math.max(0, Math.min(100, (p.remain / p.total) * 100)) : 0;
+          return `<div class="flex items-baseline justify-between gap-3">
+            <span class="min-w-0 truncate text-[0.72rem] text-ink-3">${esc(p.name)}</span>
+            <span class="shrink-0 font-mono text-[0.72rem] ${tone} tabular-nums">
+              ${num(p.remain)}
+              <span class="ml-2 text-ink-3">${esc(p.expiresAt)}</span>
+              ${tail ? `<span class="ml-1">${tail}</span>` : ''}
+            </span>
+          </div>
+          <div class="cred-bar mt-1 mb-2.5"><span style="width:${ppct}%;background:${pkUrgent || expired ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)'}"></span></div>`;
+        }).join('')
+      : '';
+
+    // 删除按钮必须在 summary **内部**：details 折叠时会隐藏 summary 之外的
+    // 所有子元素，放外面就点不到了。点击处理里已经 preventDefault +
+    // stopPropagation，不会顺带触发折叠。
+    const head = `<div class="min-w-0 flex-1 pr-12">
+      <div class="acct-name">${esc(a.nickname || a.uid || '未命名')}${tags.join('')}</div>
+      <div class="acct-meta">${esc(a.uid || a.id)}${a.domain ? ' · ' + esc(a.domain) : ''}</div>
+      <div class="acct-state">${state}</div>
+      ${creditsBlock}
+    </div>
+    <button class="btn btn-danger acct-del" data-del="${esc(a.id)}">删除</button>`;
+
+    // 有包明细才做成可展开；没有就当普通行，免得点开一片空白。
+    if (!detail) {
+      return `<div class="acct">${head}</div>`;
+    }
+    return `<details class="acct acct-expandable">
+      <summary class="acct-summary">${head}</summary>
+      <div class="cred-detail">${detail}</div>
+    </details>`;
   }).join('');
 
   box.querySelectorAll('[data-del]').forEach((btn) => {
-    btn.onclick = async () => {
+    btn.onclick = async (event) => {
+      // summary 里点删除按钮会同时触发折叠，得拦一下。
+      event.preventDefault();
+      event.stopPropagation();
       const name = btn.closest('.acct').querySelector('.acct-name').textContent.trim();
       if (!confirm(`删除「${name}」？本地凭证会一起移除。`)) return;
       btn.disabled = true;

@@ -1082,5 +1082,46 @@ class AssetTests(unittest.TestCase):
         self.assertNotIn("盖一个章 v", text)
 
 
+class MergedAccountRowTests(unittest.TestCase):
+    """账号与积分合并在一行。同一个账号出现在两处会让人来回对照，
+    账号一多两个列表各自滚动更找不到东西。"""
+
+    def test_no_separate_credits_section(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+        # 独立的「各账号积分」区块应已删除
+        self.assertNotIn('id="credits-accounts"', text)
+        self.assertNotIn('id="cred-list"', text)
+        # 合计区块保留
+        self.assertIn('id="credits-summary"', text)
+
+    def test_delete_button_inside_summary(self):
+        """删除按钮必须在 summary 内部。
+
+        details 折叠时会隐藏 summary 之外的所有子元素 —— 放外面就点不到了，
+        而且这个问题在展开状态下看不出来，只有折叠时才暴露。
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+        # head 里包含删除按钮，且 head 被放进 summary
+        self.assertIn('data-del=', text)
+        head_start = text.index("const head = ")
+        summary_start = text.index("<summary class=\"acct-summary\">${head}</summary>")
+        self.assertLess(head_start, summary_start)
+
+    def test_delete_click_does_not_toggle_details(self):
+        """点删除不该顺带折叠。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+        self.assertIn("event.preventDefault()", text)
+        self.assertIn("event.stopPropagation()", text)
+
+
 if __name__ == "__main__":
     unittest.main()
