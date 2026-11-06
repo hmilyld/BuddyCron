@@ -1195,5 +1195,161 @@ class MergedAccountRowTests(unittest.TestCase):
         self.assertIn("padding", shared.group(1))
 
 
+class LoginSessionPersistenceTests(unittest.TestCase):
+    """登录会话落盘。容器重启（更新镜像、改配置、宿主机重启）会清掉内存，
+    而此时用户的浏览器可能还停在登录页上 —— 不落盘就接不住那次授权。"""
+
+    def setUp(self):
+        import os, tempfile
+
+        self.tmp = tempfile.mkdtemp()
+        os.environ["BUDDYCRON_HOME"] = self.tmp
+
+    def tearDown(self):
+        import os, shutil
+
+        os.environ.pop("BUDDYCRON_HOME", None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _session(self):
+        from core import accounts
+
+        return accounts.LoginSession(
+            "state-abc", "https://www.codebuddy.cn/login?state=state-abc", "www.codebuddy.cn"
+        )
+
+    def test_round_trip(self):
+        from core import accounts
+
+        session = self._session()
+        accounts.save_login_session(session)
+        restored = accounts.load_login_session()
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.state, "state-abc")
+        self.assertEqual(restored.auth_url, session.auth_url)
+        self.assertEqual(restored.host, "www.codebuddy.cn")
+
+    def test_expired_session_is_dropped(self):
+        import time
+        from core import accounts
+
+        session = self._session()
+        session.created_at = time.time() - accounts.LOGIN_SESSION_TIMEOUT - 1
+        accounts.save_login_session(session)
+        self.assertIsNone(accounts.load_login_session())
+        # 过期的那份应当被清掉，不留在磁盘上
+        self.assertFalse(accounts.pending_file().exists())
+
+    def test_corrupt_file_is_ignored(self):
+        from core import accounts, paths
+
+        paths.write_private(accounts.pending_file(), "{不是 JSON")
+        self.assertIsNone(accounts.load_login_session())
+
+    def test_untrusted_host_is_rejected(self):
+        """host 必须在白名单内 —— 篡改落盘文件不该把用户导向别的域名。"""
+        import json
+        from core import accounts, paths
+
+        paths.write_private(
+            accounts.pending_file(),
+            json.dumps(
+                {
+                    "state": "s",
+                    "authUrl": "https://evil.example/login",
+                    "host": "evil.example",
+                    "createdAt": 0,
+                }
+            ),
+        )
+        self.assertIsNone(accounts.load_login_session())
+
+    def test_clear_removes_file(self):
+        from core import accounts
+
+        accounts.save_login_session(self._session())
+        self.assertTrue(accounts.pending_file().exists())
+        accounts.clear_login_session()
+        self.assertFalse(accounts.pending_file().exists())
+
+    def test_completed_session_is_not_persisted(self):
+        """已完成的会话没有恢复价值，落盘只会留个垃圾文件。"""
+        from core import accounts
+
+        session = self._session()
+        session.done = True
+        accounts.save_login_session(session)
+        self.assertFalse(accounts.pending_file().exists())
+
+
+class BudgetSizingTests(unittest.TestCase):
+    """预算要撑得住账号数。预算太小会让后面的账号静默跳过。"""
+
+    def test_daily_budget_fits_seven_accounts(self):
+        from core import runner
+
+        # 7 个账号 × 每账号配额，必须装得进全局预算
+        needed = runner.PER_ACCOUNT_BUDGET * 7
+        self.assertGreaterEqual(
+            runner.DAILY_BUDGET,
+            needed,
+            f"每日预算 {runner.DAILY_BUDGET}s 装不下 7 个账号"
+            f"（需要 {needed}s），后面的账号会被跳过",
+        )
+
+    def test_per_account_budget_is_reasonable(self):
+        from core import runner
+
+        # 单账号实测约 20 个请求，正常 20~40 秒；网络抖动时重试会翻倍。
+        # 低于 60 秒会让「一次重试就超时」变成常态。
+        self.assertGreaterEqual(runner.PER_ACCOUNT_BUDGET, 60)
+        self.assertLessEqual(runner.PER_ACCOUNT_BUDGET, 180)
+
+    def test_systemd_timeout_exceeds_budget(self):
+        """systemd 的 TimeoutStartSec 必须大于预算，否则进程会被 systemd 杀掉，
+        而结果通常最后才落盘 —— 当天记录整条丢失。"""
+        import re
+        from pathlib import Path
+        from core import runner
+
+        root = Path(__file__).resolve().parent.parent
+        daily = (root / "deploy/buddycron-daily.service").read_text(encoding="utf-8")
+        poll = (root / "deploy/buddycron-poll.service").read_text(encoding="utf-8")
+
+        daily_timeout = int(re.search(r"TimeoutStartSec=(\d+)", daily).group(1))
+        poll_timeout = int(re.search(r"TimeoutStartSec=(\d+)", poll).group(1))
+
+        self.assertGreater(daily_timeout, runner.DAILY_BUDGET)
+        self.assertGreater(poll_timeout, runner.POLL_BUDGET)
+
+
+class ScheduleDefaultsTests(unittest.TestCase):
+    """定时时间。9 点后跑，不用熬夜等结果。"""
+
+    def test_entrypoint_defaults_to_nine(self):
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "deploy/entrypoint.sh").read_text(encoding="utf-8")
+        hour = re.search(r'BUDDYCRON_DAILY_HOUR:-(\d+)', text).group(1)
+        self.assertEqual(hour, "9", "默认签到时间应是 9 点")
+
+    def test_systemd_timer_starts_at_nine(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        daily = (root / "deploy/buddycron-daily.timer").read_text(encoding="utf-8")
+        self.assertIn("09:00", daily)
+
+    def test_poll_timer_does_not_run_before_daily(self):
+        """补签在 9 点前跑没有意义 —— 主签到还没跑过，白跑一趟。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        poll = (root / "deploy/buddycron-poll.timer").read_text(encoding="utf-8")
+        self.assertIn("09,13,17,21", poll)
+
+
 if __name__ == "__main__":
     unittest.main()

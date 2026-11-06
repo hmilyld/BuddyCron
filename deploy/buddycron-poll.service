@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=%h/Codespace/BuddyCron
 ExecStart=/usr/bin/python3 cli.py poll --quiet
-# 预算在 runner.POLL_BUDGET（180 秒），留 60 秒余量。
-TimeoutStartSec=240
+预算在 runner.POLL_BUDGET（300 秒），留 60 秒余量。
+TimeoutStartSec=360
 StandardOutput=journal
 StandardError=journal

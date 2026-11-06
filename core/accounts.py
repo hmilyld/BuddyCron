@@ -214,6 +214,60 @@ class LoginSession:
         }
 
 
+def pending_file() -> Path:
+    return paths.data_dir() / "login-session.json"
+
+
+def save_login_session(session: "LoginSession") -> None:
+    """把登录会话落盘。
+
+    为什么必须落盘而不是只放内存：容器重启（更新镜像、改 compose 配置、
+    宿主机重启）会让内存里的 state 消失，而此时用户的浏览器可能还停在登录页上。
+    落盘后重启仍能接住那一次授权，代价只是一个几百字节的 JSON。
+    """
+    if session.done or session.expired:
+        clear_login_session()
+        return
+    payload = {
+        "state": session.state,
+        "authUrl": session.auth_url,
+        "host": session.host,
+        "createdAt": session.created_at,
+        "errorStreak": session.error_streak,
+    }
+    paths.write_private(pending_file(), json.dumps(payload, ensure_ascii=False))
+
+
+def load_login_session() -> "LoginSession | None":
+    """读回上次未完成的登录会话。过期或损坏就当没有。"""
+    data = paths.read_json(pending_file(), None)
+    if not isinstance(data, dict):
+        return None
+    state = str(data.get("state") or "")
+    auth_url = str(data.get("authUrl") or "")
+    host = str(data.get("host") or "")
+    if not state or not auth_url or host not in http.ALLOWED_HOSTS:
+        clear_login_session()
+        return None
+    session = LoginSession(state, auth_url, host)
+    try:
+        session.created_at = float(data.get("createdAt") or 0)
+    except (TypeError, ValueError):
+        session.created_at = 0
+    session.error_streak = http.as_int(data.get("errorStreak"))
+    if session.expired:
+        clear_login_session()
+        return None
+    return session
+
+
+def clear_login_session() -> None:
+    try:
+        pending_file().unlink()
+    except OSError:
+        pass
+
+
 def start_login(router: http.HostRouter, budget: http.Budget) -> LoginSession:
     """向官方申请一个 state，拿到交给浏览器的授权地址。"""
     last_error = "申请登录 state 失败"

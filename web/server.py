@@ -343,10 +343,13 @@ class Handler(BaseHTTPRequestHandler):
     def _start_login(self) -> dict:
         global _login_session
         with _login_lock:
+            # 内存里没有就尝试从磁盘恢复 —— 容器重启后用户可能还停在登录页。
+            if _login_session is None:
+                _login_session = accounts.load_login_session()
             if _login_session and not _login_session.done and not _login_session.expired:
                 return {
                     "ok": True,
-                    "loginId": id(_login_session),
+                    "loginId": _login_session.state,
                     "authUrl": _login_session.auth_url,
                     "expiresIn": _login_session.snapshot()["expiresIn"],
                 }
@@ -356,9 +359,10 @@ class Handler(BaseHTTPRequestHandler):
             except RuntimeError as error:
                 return {"ok": False, "error": str(error)}
             _login_session = session
+            accounts.save_login_session(session)
             return {
                 "ok": True,
-                "loginId": id(session),
+                "loginId": session.state,
                 "authUrl": session.auth_url,
                 "expiresIn": session.snapshot()["expiresIn"],
             }
@@ -366,14 +370,23 @@ class Handler(BaseHTTPRequestHandler):
     def _poll_login(self, login_id: str) -> dict:
         global _login_session
         with _login_lock:
+            # 会话标识用 state（不是内存地址）：进程重启后地址会变，
+            # 而 state 是官方发的、唯一且已落盘，前端手里的值仍然对得上。
+            if _login_session is None or _login_session.state != login_id:
+                _login_session = accounts.load_login_session()
             session = _login_session
-            if session is None or str(id(session)) != login_id:
+            if session is None or session.state != login_id:
                 return {"ok": False, "error": "登录会话不存在或已取消"}
             budget = http.Budget(60)
             try:
                 snapshot = accounts.poll_login(session, budget)
             except Exception as error:  # noqa: BLE001 - 轮询失败不该把服务弄挂
                 return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+            # 完成或失败都清掉落盘文件；还在等就更新一次（error_streak 会变）。
+            if session.done:
+                accounts.clear_login_session()
+            else:
+                accounts.save_login_session(session)
             return {"ok": True, **snapshot}
 
     def _doctor(self, account_id: str) -> dict:

@@ -1,54 +1,41 @@
 # BuddyCron
 
-WorkBuddy 多账号签到与积分工具。CLI + 本地 Web 页，无第三方依赖。
+WorkBuddy 多账号签到与积分工具。CLI + 本地 Web 页，零第三方依赖。
 
-## 为什么是这个设计
+## 功能
 
-底座取自 [`88lin/workbuddy-auto-signin`](https://github.com/88lin/workbuddy-auto-signin)（MIT，2k star），
-但它的三个前提在本项目里都不成立：
-
-| 88lin 的前提 | 本项目 |
+| 功能 | 说明 |
 |---|---|
-| 单账号（全局一个 `WORKBUDDY_AUTH_FILE`） | 多账号，每账号独立凭证 |
-| 不刷新 token（靠桌面客户端替它刷） | 本地无客户端，必须自己管 refresh |
-| 从客户端 auth 文件导入凭据 | 只能走 OAuth 独立授权 |
-
-接口契约以**官方前端 bundle** 为准，不是以任何第三方脚本为准。从
-`assets.workbuddy.cn/web/usercenter/.../growthSpace-*.js` 读出的真实调用里，
-两个参考实现各有一处错误：
-
-| 端点 | 官方前端 | 88lin | wb-checkin |
-|---|---|---|---|
-| `buddy/travel/depart` | `{location_id}` | 正确 | ❌ `{destination}` |
-| `buddy/travel/claim` | `{}` 空体 | ⚠️ 多传 `record_id` | ⚠️ 同 |
-| `lottery/draw` | `{client_token}` | 正确 | ❌ 发空 `{}` |
-| `buddy/open` | `{count}` | 正确 | ❌ 无此功能 |
-| `redeem` | `{tier, client_token}` | 正确 | ❌ 无此功能 |
-
-所以：**端点覆盖和健壮性抄 88lin，多账号凭证管理抄 wb-checkin 的思路，契约以官方前端为准。**
+| 多账号管理 | 每个账号独立 OAuth 授权，各自持有独立的 refresh 链 |
+| 每日签到 | 每天一次，领取 100 积分，连签天数累计 |
+| 成长中心 | 旅行领奖与派出、任务接取与领奖、断登补登、连登兑换、抽奖、Buddy 盲盒 |
+| 平台礼包 | 新人礼包与平台补偿（不定期活动） |
+| 积分查询 | 余额、按用途分组、包级到期时间、订阅类型 |
+| 定时执行 | 每天签到 + 定期补签兜底 |
+| 日志 | 结构化记录，界面按月份查看，可展开看每段细节 |
+| Web 界面 | 签到日历、积分汇总、账号列表、手动触发 |
+| 单口令登录 | PBKDF2 散列存储，签名 cookie 会话 |
 
 ## 快速开始
 
 ```bash
 python3 cli.py web          # 起本地 Web 页，浏览器里登录账号
-python3 cli.py doctor       # 只读核对接口契约（第一次必跑）
+python3 cli.py doctor       # 只读核对接口契约
 python3 cli.py run          # 签到 + 成长全套 + extras
 python3 cli.py status       # 看账号与最近结果
 ```
 
-**doctor 必须卡在 run 之前。** 所有端点契约都是读官方前端 bundle 读出来的，
-没拿真 token 验证过。写操作一旦用错契约，可能空耗补登卡、抽错奖、重复提交。
-
 ## 界面
 
-界面是「签到簿」：本月七格日历是主角，朱红实心是已签，今天描边，未来极淡。
+界面是「签到簿」：本月日历是主角，朱红实心是已签，今天描边，未来极淡。
 **运行侧不需要 Node** —— `web/dist/` 里是编译好的产物。
 
 四个区块：
+
 - **本月签到** —— 整月日历，右上角是已签天数，底部是「漏签几天」
 - **积分合计** —— 所有账号汇总 + 最近到期提醒
-- **各账号积分 / 到期日历** —— 并排两栏，各账号按剩余从少到多
-- **账号 + 执行** —— 账号状态、添加/删除、手动触发
+- **账号** —— 每行一个账号的完整档案（签到状态、积分余额、到期提示），点开看包级明细
+- **日志** —— 按月份切换，每条可展开看每段细节
 
 只有改界面时才需要重编：
 
@@ -80,8 +67,7 @@ environment:
   BUDDYCRON_PASSWORD: "你的密码"
 ```
 
-设了就用它，不再随机生成，也不打印明文（密码是你自己填的，不需要再记）。
-**改了环境变量就等于改密码**（下次启动生效）——否则「我改了却没生效」比不生效更让人困惑。
+设了就用它，不再随机生成，也不打印明文。**改了环境变量就等于改密码**（下次启动生效）。
 
 ### 方式二：首次启动自动生成
 
@@ -101,181 +87,131 @@ python3 cli.py passwd 我的密码    # 指定新口令
 只校验密码，不需要用户名。会话用 HMAC 签名的 HttpOnly cookie，有效期 7 天。
 同一客户端连续 5 次失败锁 5 分钟；改密码会换掉签名密钥，所有旧会话立刻失效。
 
-## 放到网上
+## 部署
 
-**默认不该这么做**，这个服务持有你所有账号的 token。大多数情况用 SSH 隧道就够：
+### Docker
+
+```bash
+mkdir -p data
+docker compose up -d
+docker compose logs -f buddycron   # 首次会打印登录密码
+```
+
+更新版本 `docker compose up -d --build`，**`./data` 不动，账号不会丢**。
+
+两个必须知道的坑：
+
+**① 数据目录权限** —— 容器以你的 UID 运行（compose 里 `user: "${BUDDYCRON_UID:-1000}"`），
+`./data` 必须属于你。报 `PermissionError: /data/.config.json` 就是属主不对：
+
+```bash
+BUDDYCRON_UID=$(id -u) BUDDYCRON_GID=$(id -g) docker compose up -d
+```
+
+**② 代理变量** —— 如果 shell 设了 `HTTP_PROXY=http://127.0.0.1:7897`，docker 会传进容器，
+而容器里的 `127.0.0.1` 是容器自己、不是宿主机，所有出站请求都会 `Connection refused`。
+compose 里已把这几个变量清空；代理必需时改用 `host.docker.internal` + `extra_hosts`。
+
+### systemd
+
+```bash
+bash deploy/install.sh      # 装 user timer
+```
+
+### 定时
+
+两套部署方式各有一套调度，**只启用其中一套**，不要同时开：
+
+| 时刻 | 动作 | 请求量 |
+|---|---|---|
+| 09:00（随机延迟 0~60 分） | 签到 + 成长全套 + extras + 积分 | ~20 / 账号 |
+| 09:00 / 13:00 / 17:00 / 21:00 | 补签兜底 + 旅行 | ~4 / 账号 |
+
+为什么是 9 点而不是 0 点：签到没有「必须几点」的硬限制，过了 0 点就算新的一天。
+0 点跑只是「尽早拿到」，代价是你得熬夜或者第二天才知道有没有失败。9 点后跑，
+醒来就能看到结果。`Persistent=true`（systemd）/ 启动补跑（容器）会兜住「当天没跑成」。
+
+补签不在 9 点前跑：主签到还没跑过，那时候补签只会白跑一趟。
+
+```yaml
+# 容器里可调
+environment:
+  BUDDYCRON_DAILY_HOUR: "9"
+  BUDDYCRON_DAILY_MINUTE: "0"
+  BUDDYCRON_POLL_HOURS: "4"
+  BUDDYCRON_DISABLE_SCHEDULER: "1"   # 只跑 Web，不要定时
+```
+
+### 时间预算
+
+账号**串行**跑，每个账号切一份配额：
+
+| 常量 | 值 | 含义 |
+|---|---|---|
+| `DAILY_BUDGET` | 900s | 每日全套的全局上限 |
+| `POLL_BUDGET` | 300s | 补签轮次的全局上限 |
+| `PER_ACCOUNT_BUDGET` | 120s | 单账号配额 |
+
+900 ÷ 120 = **7 个账号**。超过这个数，后面的会被跳过并在结果里标注「时间预算耗尽」。
+
+单账号实测约 20 个请求、正常 20~40 秒跑完；120 秒配额留了 3 倍余量给网络抖动时的重试。
+改这些常量时必须同步改 `deploy/*.service` 的 `TimeoutStartSec`（要大于预算，否则
+进程会被 systemd 杀掉而结果还没落盘）。
+
+### 对外访问
+
+默认只绑回环，外网访问不到。大多数情况用 SSH 隧道：
 
 ```bash
 ssh -L 8787:127.0.0.1:8787 you@server
 ```
 
-确实要公网访问时，完整步骤见 **[deploy/PUBLIC.md](deploy/PUBLIC.md)**。核心是：
-Caddy 终止 TLS，BuddyCron 仍然只监听 127.0.0.1。
+确实要公网访问时，Caddy 终止 TLS，BuddyCron 仍只监听 127.0.0.1，
+完整步骤见 **[deploy/PUBLIC.md](deploy/PUBLIC.md)**。
 
 ```bash
 BUDDYCRON_REQUIRE_HTTPS=1 BUDDYCRON_HOSTS=buddy.example.com \
 BUDDYCRON_TRUST_PROXY=1 python3 cli.py web --no-browser
 ```
 
-三个变量的作用：
+| 变量 | 作用 |
+|---|---|
+| `BUDDYCRON_REQUIRE_HTTPS` | 拒绝非 HTTPS 请求，cookie 加 `Secure` |
+| `BUDDYCRON_HOSTS` | 允许的 Host 列表（反代会改写 Host） |
+| `BUDDYCRON_TRUST_PROXY` | 按 `X-Forwarded-For` 分段计数失败次数 |
+
+**硬拦截**：绑到非回环地址却没设 `BUDDYCRON_REQUIRE_HTTPS=1` 时，服务拒绝启动。
+
+## 数据
+
+默认只绑回环，外网访问不到。大多数情况用 SSH 隧道：
+
+```bash
+ssh -L 8787:127.0.0.1:8787 you@server
+```
+
+确实要公网访问时，Caddy 终止 TLS，BuddyCron 仍只监听 127.0.0.1，
+完整步骤见 **[deploy/PUBLIC.md](deploy/PUBLIC.md)**。
+
+```bash
+BUDDYCRON_REQUIRE_HTTPS=1 BUDDYCRON_HOSTS=buddy.example.com \
+BUDDYCRON_TRUST_PROXY=1 python3 cli.py web --no-browser
+```
 
 | 变量 | 作用 |
 |---|---|
 | `BUDDYCRON_REQUIRE_HTTPS` | 拒绝非 HTTPS 请求，cookie 加 `Secure` |
-| `BUDDYCRON_HOSTS` | 允许的 Host 列表（反代会改写 Host，必须配上） |
+| `BUDDYCRON_HOSTS` | 允许的 Host 列表（反代会改写 Host） |
 | `BUDDYCRON_TRUST_PROXY` | 按 `X-Forwarded-For` 分段计数失败次数 |
 
-**硬拦截**：绑到非回环地址却没设 `BUDDYCRON_REQUIRE_HTTPS=1` 时，服务直接拒绝
-启动——不会让你不小心把一个明文服务暴露出去。
-
-## Docker 部署
-
-```bash
-mkdir -p data
-# 首次启动会自动生成口令并打印到容器日志
-docker compose up -d
-docker compose logs -f buddycron
-```
-
-更新版本只需 `docker compose up -d --build`，**`./data` 不动，账号不会丢**。
-
-### 两个必须知道的坑
-
-**① 数据目录权限**
-
-容器以你的 UID 运行（compose 里 `user: "${BUDDYCRON_UID:-1000}"`），所以
-`./data` 必须属于你。如果报 `PermissionError: /data/.config.json`，说明属主不对：
-
-```bash
-id -u    # 看看自己的 UID
-BUDDYCRON_UID=$(id -u) BUDDYCRON_GID=$(id -g) docker compose up -d
-```
-
-**② 代理变量**
-
-如果你的 shell 设了 `HTTP_PROXY=http://127.0.0.1:7897`，docker 会把它传进容器，
-而容器里的 `127.0.0.1` 是容器自己、不是宿主机 —— 所有出站请求都会
-`Connection refused`。compose 里已经把这几个变量清空；如果你的代理是必需的，
-改用 `host.docker.internal` 并加 `extra_hosts`（见 compose 注释）。
-
-### 容器内的定时任务
-
-容器自己跑调度，不依赖宿主机 cron：
-
-| 时间 | 动作 |
-|---|---|
-| 每天 00:05 | 签到 + 成长全套 + extras |
-| 每 6 小时 | 只补签（未签才跑全套） |
-
-用墙钟比较而不是 `sleep` 到目标时刻 —— 容器被暂停/恢复后单调时钟不走，
-`sleep` 会继续倒数，导致当天的签到被推到第二天。
-
-可调：
-
-```yaml
-environment:
-  BUDDYCRON_DAILY_HOUR: "0"
-  BUDDYCRON_DAILY_MINUTE: "5"
-  BUDDYCRON_POLL_HOURS: "6"
-  BUDDYCRON_DISABLE_SCHEDULER: "1"   # 只跑 Web，不要定时
-```
-
-### 端口
-
-固定 8787，且**只映射到宿主机回环**（`127.0.0.1:8787:8787`）。外网访问不到。
-
-## 发布流程
-
-版本号只在 `core/version.py` 一处定义。CLI、Web 页面、镜像标签都从它读。
-
-```bash
-# 1. 改版本号（只改这一行）
-vim core/version.py
-
-# 2. 如果改了界面，重新编译并提交产物
-python3 web/build.py
-
-# 3. 提交
-git commit -am "chore: 升到 v0.2.0"
-git push
-
-# 4. 打 tag 并推送 —— 这一步才触发发布
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-**tag 与 `core/version.py` 不一致时 CI 会直接失败**——一个标错版本号的镜像比
-没有镜像更麻烦，你无法从 tag 判断里面到底是什么代码。
-
-### CI 做什么
-
-| 工作流 | 触发 | 内容 |
-|---|---|---|
-| `ci.yml` | 推送 / PR | 跑测试、检查 `web/dist` 与 `web/src` 同步、校验版本号格式、确认没提交数据文件 |
-| `release.yml` | 打 `v*` tag | 校验 tag 一致 → 建 amd64+arm64 镜像推 ghcr.io → 建 GitHub Release |
-
-镜像标签：
-
-```
-ghcr.io/<owner>/buddycron:0.2.0     # 精确版本
-ghcr.io/<owner>/buddycron:0.2       # 次版本
-ghcr.io/<owner>/buddycron:latest
-```
-
-拉取：
-
-```bash
-docker pull ghcr.io/<owner>/buddycron:latest
-```
-
-`web/dist` 是**提交进仓库**的编译产物，CI 会检查它和 `web/src` 是否同步——
-「改了源码忘了重编」在本地看不出来，只有部署后才发现界面是旧的。
-
-## 日志
-
-界面底部有「日志」区块，按月份切换，每条可展开看每账号的每段细节：
-
-```
-2026/11/6 14:03:23  全套  1/1
-  ✓ 胡志刚
-      签到 ALREADY +100 积分 · 连签 1 天
-      余额 2185.05 · 体验版
-      今日已签过（今日 +100，连续 1 天，累计 100 积分）；任务·16 项待体验…
-```
-
-文件在 `~/.buddycron/logs/YYYY-MM.log`（或容器里 `/data/logs/`），**每行一个 JSON**，
-可以直接 `jq`：
-
-```bash
-tail -1 ~/.buddycron/logs/2026-11.log | jq '.accounts[0].growth.sections'
-```
-
-几个设计取舍：
-- **按日分文件**而不是一个大文件 —— 找「昨天那次」就是打开一个文件
-- **记每段细节**而不只记汇总 —— 汇总一句「16 项待体验」定位不了问题
-- **轮询空跑不写** —— 一天跑 4 次绝大多数无事，全写会淹没真事件
-- **写前脱敏** —— 日志会进 journald 或被人 `cat`，token 不能落盘
-- **保留 6 个月**，更老的自动清理
-
-## 定时
-
-```bash
-bash deploy/install.sh      # 装 systemd user timer
-```
-
-| timer | 频率 | 内容 |
-|---|---|---|
-| `buddycron-daily` | 每天 00:05 | 签到 + 成长全套 + extras |
-| `buddycron-poll` | 每 6 小时 | 只查签到，未签才补 |
-
-`Persistent=true` 让关机/休眠错过后开机自动补跑。轮询任务常态只发 1 个请求，
-成本几乎为零，但把「00:05 没跑成 = 断签」这个风险降到一天 4 次机会。
+**硬拦截**：绑到非回环地址却没设 `BUDDYCRON_REQUIRE_HTTPS=1` 时，服务拒绝启动。
 
 ## 数据
 
 ```
 ~/.buddycron/
 ├── accounts.json     账号库（含明文 token，0600）
+├── config.json       口令散列 + 会话密钥（0600）
 ├── state.json        最近一轮结果
 ├── logs/YYYY-MM.log  按日分的汇报
 └── run.lock          跨进程锁
@@ -284,32 +220,67 @@ bash deploy/install.sh      # 装 systemd user timer
 目录 0700、文件 0600，写入走「临时文件 + rename」且临时文件创建时就带 0600。
 可用 `BUDDYCRON_HOME` 覆盖数据目录。
 
-## 结构
+## 日志
+
+界面底部按月份查看，每条可展开看每账号的每段细节。文件在 `~/.buddycron/logs/`，
+**每行一个 JSON**，可以直接 `jq`：
+
+```bash
+tail -1 ~/.buddycron/logs/2026-11.log | jq '.accounts[0].growth.sections'
+```
+
+设计取舍：
+
+- **按日分文件**而不是一个大文件 —— 找「昨天那次」就是打开一个文件
+- **记每段细节**而不只记汇总 —— 汇总一句「16 项待体验」定位不了问题
+- **轮询空跑不写** —— 一天跑多次绝大多数无事，全写会淹没真事件
+- **写前脱敏** —— 日志会进 journald 或被人 `cat`，token 不能落盘
+- **保留 6 个月**，更老的自动清理
+
+## 版本与发布
+
+版本号只在 `core/version.py` 一处定义。CLI、Web 页面、镜像标签都从它读。
+
+```bash
+vim core/version.py              # 1. 改版本号
+python3 web/build.py             # 2. 改了界面就重编
+git commit -am "chore: 升到 v0.2.0" && git push
+git tag v0.2.0 && git push origin v0.2.0    # 3. 这一步才触发发布
+```
+
+**tag 与 `core/version.py` 不一致时 CI 直接失败**——一个标错版本号的镜像比
+没有镜像更麻烦。
+
+| 工作流 | 触发 | 内容 |
+|---|---|---|
+| `ci.yml` | 推送 / PR | 测试、检查 `web/dist` 与 `web/src` 同步、校验版本号格式、确认没提交数据文件 |
+| `release.yml` | 打 `v*` tag | 校验 tag 一致 → 建 amd64+arm64 镜像推 ghcr.io → 建 Release |
+
+镜像标签：`0.2.0` / `0.2` / `latest`。
+
+## 项目结构
 
 ```
 core/
 ├── http.py       请求层：双码校验 / 分级退避 / 预算 / 信封解包
 ├── accounts.py   账号库 / OAuth 登录 / refresh 串行轮换
+├── auth.py       登录口令 / 会话
 ├── checkin.py    签到
-├── growth.py     成长中心七段（顺序不可改）
-├── extras.py     礼包 + 平台补偿
+├── growth.py     成长中心七段
+├── credits.py    积分与到期时间
+├── extras.py     平台礼包 + 补偿
 ├── runner.py     多账号编排 / 轮次锁 / 每账号 quiet
-└── doctor.py     只读契约核对
-web/server.py     本地 Web 页（只绑 127.0.0.1，Host/Origin 双校验）
+├── logs.py       结构化日志
+├── doctor.py     只读契约核对
+├── version.py    版本号
+└── paths.py      数据目录与落盘
+web/
+├── server.py     本地 Web 页
+├── build.py      界面构建（Tailwind）
+├── src/          界面源码
+└── dist/         编译产物（提交进仓库）
 cli.py            命令行入口
-deploy/           systemd user units
-```
-
-## 成长中心的执行顺序（不可改）
-
-```
-1. 旅行：先领已有礼物，派出留到最后
-2. 任务：接取 + 领已完成奖励（任务送的能量/抽奖机会后面马上要用）
-3. 补登：断登补一张卡（会改变连签天数，必须早于兑换）
-4. 连登兑换：7/14/28 天三档
-5. 抽奖：用兑换得到的次数
-6. Buddy 盲盒：用能量开桌宠（会覆盖旅行记录，必须在旅行明确 idle 时）
-7. 最后派出：不覆盖在途礼物，也让「每天只跑一次」的用户有机会开 Buddy
+deploy/           systemd units / 容器入口 / 公网部署文档
 ```
 
 ## 测试
@@ -320,17 +291,16 @@ python3 -m unittest discover -s tests
 
 纯逻辑测试，不依赖网络、不需要真 token。
 
-## 实测契约与能力边界
+## 接口契约与能力边界
 
-以下结论都来自**真 token 实测**（2026-11-06），不是从代码推的。
+以下结论来自**真 token 实测**（2026-11-06）。
 
 ### 域名
 
 三个 host（`www.codebuddy.cn` / `www.workbuddy.cn` / `copilot.tencent.com`）对成长中心
-和签到接口**都能通**。默认走账号 `domain` 字段指定的那个，失败再换。所以「哪个域名对」
-不是问题，不用纠结。
+和签到接口**都能通**。默认走账号 `domain` 字段指定的那个，失败再换。
 
-### 积分天花板
+### 积分来源
 
 单个账号每月稳态收益（官方活动规则原文）：
 
@@ -342,14 +312,13 @@ python3 -m unittest discover -s tests
 | 抽奖 | 每月 3 次 | 期望 19 | ~57 |
 | 成长任务 | 一次性 | 最多 1800 | 1800（仅首月） |
 
-**签到一项占稳态收益的 86%，而它每天只要 1 个请求。** 旅行占 6.5%，需要每 4 小时
-轮询才能及时领（不领会压到第二天，但当天本来也只能派一次）。盲盒/徽章/Buddy 养成
-对积分是**零收益**——能量只能换虚拟宠物。
+**签到一项占稳态收益的 86%。** 盲盒/徽章/Buddy 养成对积分是**零收益**——
+能量只能换虚拟宠物。
 
-### 任务类功能的天花板（重要）
+### 任务类功能的前提
 
 18 项成长任务全部需要先完成 `first_buddy`（首领 Buddy 任务，300 积分 + 8 能量）。
-而 `first_buddy` 的完成条件是**在客户端里真的产生一次对话**：
+它的完成条件是**在客户端里真的产生一次对话**：
 
 ```
 POST /v2/activity/growth/tasks/accept  {"task_codes":["first_buddy"]}
@@ -359,80 +328,37 @@ POST /v2/activity/growth/buddy/first   {}
 → 400 {"msg":"first_buddy task not completed yet (need at least one conversation)"}
 ```
 
-服务端**没有上报任务进度的入口**（`tasks/{code}/complete`、`/finish`、`/report`、
+服务端没有上报任务进度的入口（`tasks/{code}/complete`、`/finish`、`/report`、
 `/progress` 四个形态实测全 404），进度只随客户端里的真实行为增长。
 
-### 门控：未打通时不白打请求
+工具先读 `first_buddy` 状态再决定要不要接取进阶任务：
 
-工具先读 `first_buddy` 的状态再决定要不要接取进阶任务：
-
-| `first_buddy` 状态 | 行为 |
+| 状态 | 行为 |
 |---|---|
 | `claimed` / `completed` | 已打通 → 接取 16 项 + 领已完成奖励 |
-| 其它（`not_accepted` 等） | 未打通 → **只尝试领首领任务本身的奖**，不碰进阶任务 |
+| 其它 | 未打通 → 只尝试领首领任务本身的奖，不碰进阶任务 |
 | 接口没给这一项 | 保守按未打通处理 |
 
-不做这道门控的代价：每轮白打 16 个接取请求、收回 16 条同样的
-`prerequisite not met: first_buddy`，汇报里永远挂着一句「16 项接取被拒」——
-用户看不出这是「还没开始」而不是故障。现在未打通时的汇报是
-「进阶任务待解锁（需先在客户端完成一次对话）」，不报假失败。
+打通之后能自动完成的是「接取」和「领奖」两端；中间那段真实使用行为
+（对话、用技能、召唤专家、用模板、建自动化任务）需要在客户端里逐项完成。
 
-### 前置打通之后，接取链路完全可用（实测）
-
-在任意一台机器上装 WorkBuddy 客户端、登录、聊一句话之后，`first_buddy` 变成
-`claimed`，其余 16 项任务的前置条件随之满足。此后本工具能自动完成：
-
-| 动作 | 实测结果 |
-|---|---|
-| 批量接取 16 项任务 | ✅ 全部进入 `accepted`，进度槽从 `null` 变成 `0/1`、`0/5` |
-| 领已完成任务的奖励 | ✅ 幂等（`already_claimed: true`、`credit: 0`，不会重复发奖） |
-| 开 Buddy 盲盒 | ✅ `{count}` 契约正确 |
-| 派出旅行 | ✅ `{location_id}` 契约正确，实测派出 2 小时后返回 |
-
-**一次性的 1800 积分仍然要靠你在客户端里逐项完成**（对话、用技能、召唤专家、
-用模板、建自动化任务）。工具负责的是「接取 + 领奖」两端，中间那段真实使用行为
-没法代做——服务端不给上报入口，这是设计上的硬边界，不是实现缺陷。
-
-所以「能自动拿到的」和「需要你动手的」是这样分的：
-
-```
-自动（≈3480/月/账号）      需要你在客户端动手（一次性 1800）
-├─ 签到        3000        ├─ 聊 5 次
-├─ 旅行         ~225       ├─ 用 1 个技能
-├─ 连登兑换      200       ├─ 召唤 5 位专家
-└─ 抽奖          ~57       ├─ 用 5 个模板
-                            └─ 建 1 个自动化任务
-```
-
-### 旅行的时间账（决定了调度设计）
-
-规则原文：每位用户每日可派 Buddy 1 次；须在下一次主动发起旅行之前领取奖励。
-
-所以「早领礼物」**不增加收益**——一天只能派一次，早领晚领都是那 5~10 积分。
-轮询的真实价值不是「及时领旅行」，而是：
-
-1. **补签兜底**：00:05 那次若撞上关机/断网，当天还能补上，避免断签。
-2. **礼物不丢**：礼物必须在下一次派出前领，否则作废。所以 `poll` 模式在签到
-   成功后仍会跑一次「只领礼物 + 派出」（3 个请求），不会把礼物压到下一个 daily。
-
-### 补登卡的一个陷阱
+### 补登卡的判断
 
 账号从未活跃过时，本月所有历史日期 `score` 都是 0，但它们不是「断登」而是「还没开始」。
 `makeup_candidates` 用 `streak.days == 0 && month_total_days == 0` 排除这种情况——
 否则会拿不可逆的补登卡去补一个从没开始过的月份。
 
-### 已修正的三处第三方实现错误
+### 成长中心的执行顺序
 
-| 端点 | 官方前端 | 88lin | wb-checkin |
-|---|---|---|---|
-| `buddy/travel/depart` | `{location_id}` | ✅ | ❌ `{destination}` |
-| `lottery/draw` | `{client_token}` | ✅ | ❌ 空 `{}`（缺了会 400） |
-| `buddy/open` | `{count}` | ✅ | ❌ 无此功能 |
-| `redeem` | `{tier, client_token}` | ✅ | ❌ 无此功能 |
-
-另外 `tasks/accept` 的响应是**逐条**结果，HTTP 200 不等于全部接取成功：
-实测 17 项全部返回 `{"status":"error","message":"prerequisite not met: first_buddy"}`。
-旧实现把 200 当成 `len(batch)` 全部成功，会把「全部被拒」报成「接取 17 项」。
+```
+1. 旅行：先领已有礼物，派出留到最后
+2. 任务：接取 + 领已完成奖励（任务送的能量/抽奖机会后面马上要用）
+3. 补登：断登补一张卡（会改变连签天数，必须早于兑换）
+4. 连登兑换：7/14/28 天三档
+5. 抽奖：用兑换得到的次数
+6. Buddy 盲盒：用能量开桌宠（会覆盖旅行记录，必须在旅行明确 idle 时）
+7. 最后派出：不覆盖在途礼物，也让「每天只跑一次」的用户有机会开 Buddy
+```
 
 ## 免责
 

@@ -1,12 +1,15 @@
 [Unit]
-Description=BuddyCron 每日签到（00:05）
+Description=BuddyCron 每日签到（09:00 起，随机延迟 1 小时）
 
 [Timer]
-OnCalendar=*-*-* 00:05:00
-# 关机 / 休眠错过后开机自动补跑。这一条直接干掉了「00:05 没跑成 = 断签」。
+# 09:00 起跑。签到没有「必须几点」的硬限制——过了 0 点就算新的一天，
+# 所以没必要熬夜等 00:05。9 点后跑，醒来就能看到当天结果。
+OnCalendar=*-*-* 09:00:00
+# 0~60 分钟随机延迟：错峰，也让「正好在 9:00 重启服务」这类偶然撞车
+# 不至于每次都踩同一个点。实际执行时间落在 09:00~10:00。
+RandomizedDelaySec=3600
+# 关机 / 休眠错过后开机自动补跑。
 Persistent=true
-# 随机延迟 0~10 分钟：多个账号串行时不必和整点撞车。
-RandomizedDelaySec=600
 Unit=buddycron-daily.service
 
 [Install]

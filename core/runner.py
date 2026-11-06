@@ -19,10 +19,17 @@ import time
 from . import accounts, checkin, credits, extras, growth, http, logs, paths
 
 # 全局预算上限（秒）。systemd 任务的 TimeoutStartSec 必须比它大。
-DAILY_BUDGET = 420
-POLL_BUDGET = 180
+#
+# 这些数字是按「单账号跑完成长中心七段要多久」反推的，不是随便定的：
+#   单账号实测约 20 个请求，正常网络下 20~40 秒跑完；网络抖动时重试会翻倍。
+#   给 120 秒配额，7 个账号就是 840 秒——留出 40% 余量给最慢的那一个。
+#
+# 旧值 420 / 90 只够 4~5 个账号，第 5 个之后会被跳过。账号数超过这个数时
+# 必须同步调大，否则「后面的账号今天没签上」会静默发生。
+DAILY_BUDGET = 900
+POLL_BUDGET = 300
 # 单账号配额。串行时每账号至少留这么多，否则前面的账号超时会把后面饿死。
-PER_ACCOUNT_BUDGET = 90
+PER_ACCOUNT_BUDGET = 120
 
 
 class CycleGuard:
