@@ -17,7 +17,10 @@ permissions:
   packages: write   # 推 ghcr.io
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
+  # Docker 镜像名必须全小写，而 github.repository 保留了仓库名的大小写
+  # （hmilyld/BuddyCron）。直接用它会让 `docker pull` 失败 —— 推上去的
+  # 是 buddycron，Release 里写的却是 BuddyCron。
+  IMAGE: ghcr.io/${{ github.repository_owner }}/buddycron
 
 jobs:
   # ---------------------------------------------------------------- 先验证
