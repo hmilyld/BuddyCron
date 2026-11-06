@@ -36,8 +36,11 @@ Caddy 自动申请 Let's Encrypt 证书，前提是域名 A 记录指向这台�
 
 **① 数据目录属主**
 
-容器以 UID 1000 运行，`./data` 必须属于这个 UID，否则报
-`PermissionError: /data/.config.json`：
+容器以 UID 1000 运行。`stack.yml` 默认用**命名卷**，镜像里的 `/data` 已经
+chown 成 1000:1000，卷初始化会继承这个属主 —— **不需要手动 chown**。
+
+如果你想改用绑定挂载（数据文件直接可见、便于备份），宿主机目录必须属于
+同一个 UID，否则报 `PermissionError: /data/.config.json`：
 
 ```bash
 mkdir -p ./data && chown -R 1000:1000 ./data

@@ -20,19 +20,21 @@ services:
     image: ghcr.io/hmilyld/buddycron:${BUDDYCRON_TAG:-0.1.1}
     restart: unless-stopped
 
-    # 容器内以 root 之外的 UID 运行。数据卷的属主必须和这里一致，
-    # 否则会报 PermissionError: /data/.config.json。
-    # 如果 data 目录是你用普通用户建的（通常是 1000），保持默认即可。
+    # 容器以非 root 运行。镜像里 /data 已 chown 成 1000:1000，
+    # 命名卷首次挂载会继承这个属主，不需要手动 chown。
+    #
+    # 服务器用户不是 1000 时（`id -u` 查），改成你的 UID ——
+    # 那时命名卷属主也得一起改，或改用绑定挂载（见下方注释）。
     user: "${BUDDYCRON_UID:-1000}:${BUDDYCRON_GID:-1000}"
 
     volumes:
-      # 用绑定挂载而不是命名卷：命名卷由 Docker 以 root 创建，而容器以
-      # UID 1000 运行，会报 PermissionError: /data/.config.json。
-      # 绑定挂载的目录由你自己建，属主天然就是你的 UID。
+      # 命名卷：swarm 下不需要每个节点都准备目录，比绑定挂载省事。
+      # 镜像里 /data 已经 chown 成 1000，卷初始化会继承 —— 不用手动 chown。
       #
-      # 部署前先建目录：
-      #   mkdir -p ./data && chown -R $(id -u):$(id -g) ./data
-      - ./data:/data
+      # 想改用绑定挂载（数据文件直接可见、便于备份）就换成：
+      #   - ./data:/data
+      # 并在宿主机上 `mkdir -p ./data && chown -R 1000:1000 ./data`。
+      - buddycron-data:/data
 
     environment:
       BUDDYCRON_HOME: /data
@@ -120,8 +122,9 @@ networks:
   internal:
 
 volumes:
-  # 只保留 Caddy 的两个卷：证书要持久化，否则每次重启都重新签发，
+  # 应用数据卷。镜像里 /data 已 chown 成 1000，卷初始化会继承属主。
+  buddycron-data:
+  # Caddy 的两个卷：证书要持久化，否则每次重启都重新签发，
   # 而 Let's Encrypt 有频率限制。
-  # 应用数据用绑定挂载（见 services.buddycron.volumes），不用命名卷。
   caddy-data:
   caddy-config:

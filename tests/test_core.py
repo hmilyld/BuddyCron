@@ -1579,20 +1579,31 @@ class DeployStackTests(unittest.TestCase):
             block = text[idx:next_idx if next_idx > 0 else len(text)]
             self.assertIn("NO_PROXY", block, f"{service} 没有清代理变量")
 
-    def test_app_uses_bind_mount_not_named_volume(self):
-        """应用数据必须用绑定挂载。
+    def test_data_volume_owner_matches_user(self):
+        """数据卷必须能被容器写入。
 
-        命名卷由 Docker 以 root 创建，而容器以 UID 1000 运行，
-        会报 PermissionError: /data/.config.json。
+        两种方式都行：
+          - 命名卷（Dockerfile 里 chown 过 /data，卷初始化继承属主）
+          - 绑定挂载（宿主机目录由你建，属主天然正确）
+
+        这里只检查「用了命名卷时 Dockerfile 必须有 chown」——
+        否则容器以非 root 运行时写不了，报 PermissionError。
         """
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        text = (root / "stack.yml").read_text(encoding="utf-8")
-        idx = text.index("  buddycron:")
-        block = text[idx:text.index("  # ---", idx)]
-        self.assertIn("./data:/data", block)
-        self.assertNotIn("buddycron-data", block)
+        stack = (root / "stack.yml").read_text(encoding="utf-8")
+        dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+
+        idx = stack.index("  buddycron:")
+        block = stack[idx : stack.index("  # ---", idx)]
+
+        if "buddycron-data:/data" in block:
+            # 用命名卷时，镜像里必须 chown 过 /data
+            self.assertIn("chown", dockerfile, "用命名卷时 Dockerfile 必须 chown /data")
+        else:
+            # 用绑定挂载时，宿主机目录的属主要和 user: 一致
+            self.assertIn("./data:/data", block, "既不是命名卷也不是绑定挂载")
 
     def test_password_is_required_not_silent(self):
         """缺密码要明确报错，而不是默默生成一个让人找不到的随机串。"""
@@ -1619,6 +1630,55 @@ class DeployStackTests(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         text = (root / "Caddyfile").read_text(encoding="utf-8")
         self.assertIn("{$DOMAIN}", text)
+
+
+class DockerfileTests(unittest.TestCase):
+    """Dockerfile 的关键约束。这些错了只有部署时才暴露 ——
+    本地跑源码永远发现不了。"""
+
+    def test_data_dir_chowned_before_user_switch(self):
+        """`/data` 必须在 Dockerfile 里 chown 成 1000。
+
+        命名卷首次挂载到空目录时，Docker 会复制镜像里该目录的**属主**。
+        不 chown 的话属主是 root:root，而 `USER 1000` 是运行时才切换的，
+        晚于卷初始化 —— 于是容器写不了 /data，报 PermissionError。
+
+        这是「命名卷 + 非 root 用户」能工作的前提。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "Dockerfile").read_text(encoding="utf-8")
+
+        # mkdir 那一 RUN 里必须有 chown
+        mkdir_line = next(
+            (line for line in text.splitlines() if "mkdir -p /data" in line), None
+        )
+        self.assertIsNotNone(mkdir_line, "Dockerfile 里没有 mkdir /data")
+        # chown 可能在同一行或紧随的续行里
+        idx = text.index("mkdir -p /data")
+        block = text[idx : idx + 200]
+        self.assertIn("chown", block, "/data 没有 chown，命名卷会是 root:root")
+
+    def test_chown_happens_before_user(self):
+        """chown 必须在 USER 之前 —— 顺序反了就没用（USER 之后的 RUN 以非 root 执行）。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "Dockerfile").read_text(encoding="utf-8")
+        chown_pos = text.index("chown")
+        user_pos = text.index("USER ")
+        self.assertLess(chown_pos, user_pos, "chown 在 USER 之后，属主改不了")
+
+    def test_runs_as_non_root(self):
+        """容器不该以 root 运行 —— 这个服务持有所有账号的 token。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("USER 1000", text)
+        self.assertNotIn("USER root", text)
 
 
 if __name__ == "__main__":

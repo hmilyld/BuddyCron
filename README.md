@@ -228,18 +228,16 @@ CHANGELOG 的格式：
 仓库里有现成的 `stack.yml` + `Caddyfile`，带反向代理和自动证书：
 
 ```bash
-# 1. 建数据目录（属主必须和容器 UID 一致）
-mkdir -p ./data
+# 1. 改 stack.yml 里的域名和密码（两处 TODO）
 
-# 2. 改 stack.yml 里的域名和密码（两处 TODO）
-
-# 3. 起栈
+# 2. 起栈
 docker stack deploy -c stack.yml buddycron
 # 或者不用 swarm：
 docker compose -f stack.yml up -d
 ```
 
-域名指向这台服务器后，Caddy 会自动申请 Let's Encrypt 证书。
+域名指向这台服务器后，Caddy 会自动申请 Let's Encrypt 证书。数据存在命名卷里，
+镜像里的 `/data` 已 chown 成 1000，不需要手动建目录。
 
 三个必填项在 `stack.yml` 里已经配好，只要改域名：
 
