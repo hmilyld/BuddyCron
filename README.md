@@ -182,29 +182,52 @@ BUDDYCRON_TRUST_PROXY=1 python3 cli.py web --no-browser
 
 **硬拦截**：绑到非回环地址却没设 `BUDDYCRON_REQUIRE_HTTPS=1` 时，服务拒绝启动。
 
-## 数据
+## 环境变量
 
-默认只绑回环，外网访问不到。大多数情况用 SSH 隧道：
+全部环境变量。**除了 `BUDDYCRON_UID` / `BUDDYCRON_GID`，都由程序自己读取**；
+那两个是 Docker Compose 的变量替换，只在 `docker-compose.yml` 里生效。
 
-```bash
-ssh -L 8787:127.0.0.1:8787 you@server
-```
+### 数据与口令
 
-确实要公网访问时，Caddy 终止 TLS，BuddyCron 仍只监听 127.0.0.1，
-完整步骤见 **[deploy/PUBLIC.md](deploy/PUBLIC.md)**。
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BUDDYCRON_HOME` | `~/.buddycron`（容器里 `/data`） | 数据目录。账号库、配置、日志、锁都在这里 |
+| `BUDDYCRON_PASSWORD` | 空（随机生成） | 登录口令。设了就用它，且**每次启动都对齐**——改了就等于改密码 |
 
-```bash
-BUDDYCRON_REQUIRE_HTTPS=1 BUDDYCRON_HOSTS=buddy.example.com \
-BUDDYCRON_TRUST_PROXY=1 python3 cli.py web --no-browser
-```
+### Web 服务
 
-| 变量 | 作用 |
-|---|---|
-| `BUDDYCRON_REQUIRE_HTTPS` | 拒绝非 HTTPS 请求，cookie 加 `Secure` |
-| `BUDDYCRON_HOSTS` | 允许的 Host 列表（反代会改写 Host） |
-| `BUDDYCRON_TRUST_PROXY` | 按 `X-Forwarded-For` 分段计数失败次数 |
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BUDDYCRON_REQUIRE_HTTPS` | 关 | 设 `1` 时拒绝非 HTTPS 请求，cookie 加 `Secure`。绑非回环地址时必须开 |
+| `BUDDYCRON_HOSTS` | 空 | 允许的 Host，逗号分隔。反代会改写 Host，公网部署时必须配，否则全部 403 |
+| `BUDDYCRON_TRUST_PROXY` | 关 | 设 `1` 时按 `X-Forwarded-For` 分段计数失败次数。不设的话所有访客算同一个人，别人试错会把你一起锁 5 分钟 |
+| `BUDDYCRON_IN_CONTAINER` | 关 | 设 `1` 时允许绑 `0.0.0.0` 而不要求 HTTPS——容器内绑 `0.0.0.0` 是正常的，暴露面由 `ports` 控制 |
 
-**硬拦截**：绑到非回环地址却没设 `BUDDYCRON_REQUIRE_HTTPS=1` 时，服务拒绝启动。
+### 定时（仅容器入口脚本读取）
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BUDDYCRON_DAILY_HOUR` | `9` | 每日签到的小时 |
+| `BUDDYCRON_DAILY_MINUTE` | `0` | 每日签到的分钟 |
+| `BUDDYCRON_POLL_HOURS` | `4` | 补签轮次间隔（小时） |
+| `BUDDYCRON_DISABLE_SCHEDULER` | 关 | 设 `1` 只跑 Web，不跑定时。容器里另有用例：想在宿主机用 cron 时 |
+
+> 这四个只在 `deploy/entrypoint.sh`（容器入口）里生效。用 systemd 部署时改
+> `deploy/*.timer` 的 `OnCalendar`，不是改这些变量——systemd 那边根本没有
+> 对应的环境变量。
+
+### Docker Compose 专用
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BUDDYCRON_UID` | `1000` | 容器运行用户。必须和 `./data` 的属主一致，否则 `PermissionError` |
+| `BUDDYCRON_GID` | `1000` | 同上，组 ID |
+
+### 只进镜像元数据
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BUDDYCRON_VERSION` | `dev` | **运行时不读取**。CI 通过 build-arg 传进来写进镜像 label，让 `docker inspect` 能看到版本。程序显示的版本号来自 `core/version.py` |
 
 ## 数据
 

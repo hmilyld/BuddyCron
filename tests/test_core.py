@@ -1351,5 +1351,78 @@ class ScheduleDefaultsTests(unittest.TestCase):
         self.assertIn("09,13,17,21", poll)
 
 
+class EnvVarDocsTests(unittest.TestCase):
+    """文档里的环境变量必须和代码一致。
+
+    这类表格最容易腐烂：加了新变量忘了写、删了旧变量忘了删，最后文档
+    比没有还误导。所以用测试对着代码扫一遍。
+    """
+
+    def _code_env_vars(self) -> set[str]:
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        found: set[str] = set()
+        for path in root.glob("**/*.py"):
+            if "__pycache__" in str(path) or path.name.startswith("test_"):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            found.update(re.findall(r"BUDDYCRON_[A-Z_]+", text))
+        # 容器入口脚本也读环境变量
+        entry = root / "deploy/entrypoint.sh"
+        if entry.exists():
+            found.update(re.findall(r"BUDDYCRON_[A-Z_]+", entry.read_text(encoding="utf-8")))
+        return found
+
+    def _documented_env_vars(self) -> set[str]:
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "README.md").read_text(encoding="utf-8")
+        return set(re.findall(r"`(BUDDYCRON_[A-Z_]+)`", text))
+
+    def test_readme_documents_every_env_var(self):
+        """代码读到的每个变量都要在 README 里出现。"""
+        missing = self._code_env_vars() - self._documented_env_vars()
+        self.assertEqual(
+            missing,
+            set(),
+            f"README 缺少这些环境变量的说明：{sorted(missing)}",
+        )
+
+    def test_readme_has_env_var_table(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## 环境变量", text)
+        # 至少要有默认值一列 —— 没有默认值的表格等于没说
+        self.assertIn("| 变量 | 默认 | 作用 |", text)
+
+    def test_compose_only_vars_are_labelled(self):
+        """BUDDYCRON_UID / GID 只在 compose 里用，不该被误当成程序读的变量。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "README.md").read_text(encoding="utf-8")
+        idx = text.index("### Docker Compose 专用")
+        block = text[idx:idx + 400]
+        self.assertIn("BUDDYCRON_UID", block)
+        self.assertIn("BUDDYCRON_GID", block)
+
+    def test_version_var_marked_as_not_read_at_runtime(self):
+        """BUDDYCRON_VERSION 只是镜像 label，运行时不读 —— 别让人以为能覆盖版本号。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "README.md").read_text(encoding="utf-8")
+        idx = text.index("### 只进镜像元数据")
+        block = text[idx:idx + 300]
+        self.assertIn("BUDDYCRON_VERSION", block)
+        self.assertIn("运行时不读取", block)
+
+
 if __name__ == "__main__":
     unittest.main()

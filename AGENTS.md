@@ -111,6 +111,8 @@ HTTP 200 不等于业务成功。`{"code": 10001, "msg": ...}` 配 200 是常态
 - 只绑 `127.0.0.1`。绑非回环必须设 `BUDDYCRON_REQUIRE_HTTPS=1`（代码里有硬拦截）
 - Host 白名单 + Origin 校验挡 DNS rebinding 与跨站请求
 - 静态资源走白名单，不做任意路径读取
+- 新增环境变量要同时更新 README 的「环境变量」表格，测试 `test_readme_documents_every_env_var`
+  会扫代码对比，漏写直接失败
 
 ### 口令
 
