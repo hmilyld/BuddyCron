@@ -1,0 +1,127 @@
+# BuddyCron 部署栈
+#
+# 用法：
+#   1. 改下面两处标注 TODO 的地方（域名和密码）
+#   2. docker stack deploy -c stack.yml buddycron
+#
+# 或者用 docker compose（不需要 swarm）：
+#   docker compose -f stack.yml up -d
+#
+# 架构：
+#   浏览器 ──HTTPS──> caddy（自动证书） ──HTTP──> buddycron:8787
+#
+# buddycron 不对外暴露端口，只在栈内网络里被 caddy 访问。
+
+services:
+  # ---------------------------------------------------------------- 应用
+  buddycron:
+    # 用 ghcr 上的正式镜像，不在服务器上构建 —— 构建要拉 Node 和 Tailwind，
+    # 而运行时根本用不到。更新版本只需改这里的 tag 再 deploy。
+    image: ghcr.io/hmilyld/buddycron:${BUDDYCRON_TAG:-0.1.1}
+    restart: unless-stopped
+
+    # 容器内以 root 之外的 UID 运行。数据卷的属主必须和这里一致，
+    # 否则会报 PermissionError: /data/.config.json。
+    # 如果 data 目录是你用普通用户建的（通常是 1000），保持默认即可。
+    user: "${BUDDYCRON_UID:-1000}:${BUDDYCRON_GID:-1000}"
+
+    volumes:
+      # 用绑定挂载而不是命名卷：命名卷由 Docker 以 root 创建，而容器以
+      # UID 1000 运行，会报 PermissionError: /data/.config.json。
+      # 绑定挂载的目录由你自己建，属主天然就是你的 UID。
+      #
+      # 部署前先建目录：
+      #   mkdir -p ./data && chown -R $(id -u):$(id -g) ./data
+      - ./data:/data
+
+    environment:
+      BUDDYCRON_HOME: /data
+      # 容器内绑 0.0.0.0 是正常的 —— 它只在栈内网络里可见，不映射到宿主机。
+      BUDDYCRON_IN_CONTAINER: "1"
+
+      # 时区。签到按「本地日期」判定今天，时区错了会算错日期。
+      TZ: Asia/Shanghai
+
+      # 登录密码。TODO 改成一个你自己记得住、但别人猜不到的。
+      # 这个服务持有你所有账号的 token，别用弱口令。
+      BUDDYCRON_PASSWORD: "${BUDDYCRON_PASSWORD:?请在 stack.yml 里设置 BUDDYCRON_PASSWORD}"
+
+      # --- 公网访问三项，全部必填 ---
+      # 拒绝所有非 HTTPS 请求。少了它服务会直接拒绝启动。
+      BUDDYCRON_REQUIRE_HTTPS: "1"
+      # TODO 改成你的域名。反代会改写 Host，白名单里没有就会全部 403。
+      BUDDYCRON_HOSTS: "${BUDDYCRON_HOSTS:-buddy.hmilyld.com}"
+      # 按 X-Forwarded-For 分段计数失败次数。不设的话所有访客算同一个人，
+      # 别人试错会把你一起锁 5 分钟。
+      BUDDYCRON_TRUST_PROXY: "1"
+
+      # 清掉宿主机带进来的代理变量。
+      #
+      # 为什么必须清：如果 shell 里设了 HTTP_PROXY，docker 会把它传进容器，
+      # 而容器里的 127.0.0.1 指向容器自己、不是宿主机 —— 结果是所有出站请求
+      # 都 Connection refused，签到全部失败。
+      http_proxy: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "*"
+
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import urllib.request,sys
+          r=urllib.request.urlopen('http://127.0.0.1:8787/login',timeout=4)
+          sys.exit(0 if r.status==200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------- 反向代理
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # 证书存在这里，重启不会重新签发
+      - caddy-config:/config
+    environment:
+      # Caddyfile 里用 {$DOMAIN} 引用，避免域名写死在两个地方。
+      DOMAIN: "${BUDDYCRON_HOSTS:-buddy.hmilyld.com}"
+
+      # 清掉宿主机带进来的代理变量。
+      #
+      # 为什么 Caddy 也要清：如果 shell 里设了 HTTP_PROXY，docker 会把它传进
+      # 容器，而容器里的 127.0.0.1 指向容器自己。Caddy 申请 Let's Encrypt
+      # 证书时会走这个代理，结果是证书永远签发不下来 —— 表现为 443 一直连不上。
+      http_proxy: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "*"
+    depends_on:
+      - buddycron
+    networks:
+      - internal
+
+networks:
+  # 不指定 driver：swarm 模式下 Docker 自动用 overlay，compose 模式下用 bridge。
+  # 写死 overlay 会让 `docker compose -f stack.yml up -d` 直接失败。
+  internal:
+
+volumes:
+  # 只保留 Caddy 的两个卷：证书要持久化，否则每次重启都重新签发，
+  # 而 Let's Encrypt 有频率限制。
+  # 应用数据用绑定挂载（见 services.buddycron.volumes），不用命名卷。
+  caddy-data:
+  caddy-config:

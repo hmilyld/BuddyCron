@@ -225,14 +225,37 @@ CHANGELOG 的格式：
 
 ## 公网部署
 
-默认只绑回环。大多数情况用 SSH 隧道就够了：
+仓库里有现成的 `stack.yml` + `Caddyfile`，带反向代理和自动证书：
+
+```bash
+# 1. 建数据目录（属主必须和容器 UID 一致）
+mkdir -p ./data
+
+# 2. 改 stack.yml 里的域名和密码（两处 TODO）
+
+# 3. 起栈
+docker stack deploy -c stack.yml buddycron
+# 或者不用 swarm：
+docker compose -f stack.yml up -d
+```
+
+域名指向这台服务器后，Caddy 会自动申请 Let's Encrypt 证书。
+
+三个必填项在 `stack.yml` 里已经配好，只要改域名：
+
+| 变量 | 不设的后果 |
+|---|---|
+| `BUDDYCRON_HOSTS` | 所有请求 403——反代改写了 Host |
+| `BUDDYCRON_REQUIRE_HTTPS=1` | 服务拒绝启动 |
+| `BUDDYCRON_TRUST_PROXY=1` | 所有访客算同一个人，别人试错会把你一起锁 |
+
+**不用反向代理也行**：SSH 隧道就够了，不用配证书：
 
 ```bash
 ssh -L 8787:127.0.0.1:8787 you@server
 ```
 
-要真开公网，Caddy 终止 TLS，BuddyCron 仍只监听 127.0.0.1。完整步骤见
-**[deploy/PUBLIC.md](deploy/PUBLIC.md)**。
+细节和排错见 **[deploy/PUBLIC.md](deploy/PUBLIC.md)**。
 
 ## 项目结构
 

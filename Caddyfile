@@ -1,0 +1,28 @@
+# Caddy 配置。域名从环境变量 DOMAIN 读，不用在两处各写一遍。
+#
+# Caddy 会自动申请 Let's Encrypt 证书并续期 —— 前提是域名已解析到这台服务器，
+# 且 80 端口能从公网访问（验证域名归属要用）。
+
+{$DOMAIN} {
+	# 转发给栈内的 buddycron 服务（Docker 网络里用服务名当主机名）
+	reverse_proxy buddycron:8787 {
+		# 这两行不能省：
+		#   少了 X-Forwarded-Proto，服务会以为你在用 HTTP 而拒绝所有请求
+		#   少了 X-Forwarded-For，失败计数会把所有访客算成同一个人
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	encode gzip
+
+	# 不给搜索引擎索引，也不允许被嵌入 iframe
+	header X-Robots-Tag "noindex, nofollow"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "no-referrer"
+
+	# 访问日志。Caddy 默认写到 stdout，`docker service logs` 能看到。
+	log {
+		output stdout
+		format console
+	}
+}

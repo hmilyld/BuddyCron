@@ -1548,5 +1548,78 @@ class ChangelogTests(unittest.TestCase):
         self.assertEqual(changelog.extract("99.99.99"), "")
 
 
+class DeployStackTests(unittest.TestCase):
+    """stack.yml 与 Caddyfile。这两个文件错了就是「部署后打不开」，
+    而本地开发根本不会跑到这条路径，所以用测试钉住关键约束。"""
+
+    def test_stack_has_required_public_vars(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "stack.yml").read_text(encoding="utf-8")
+        # 公网部署三项必须存在
+        for var in ("BUDDYCRON_REQUIRE_HTTPS", "BUDDYCRON_HOSTS", "BUDDYCRON_TRUST_PROXY"):
+            self.assertIn(var, text, f"stack.yml 缺少 {var}")
+
+    def test_both_services_clear_proxy(self):
+        """两个服务都要清代理变量。
+
+        Caddy 走代理会导致 Let's Encrypt 证书签不下来，表现为 443 一直连不上，
+        而日志里只有一行 acme_client 的失败 —— 很容易误判成域名没解析。
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "stack.yml").read_text(encoding="utf-8")
+
+        # 按服务切段，各自都要有 NO_PROXY
+        for service in ("buddycron", "caddy"):
+            idx = text.index(f"  {service}:")
+            next_idx = text.find("\n  # ---", idx + 1)
+            block = text[idx:next_idx if next_idx > 0 else len(text)]
+            self.assertIn("NO_PROXY", block, f"{service} 没有清代理变量")
+
+    def test_app_uses_bind_mount_not_named_volume(self):
+        """应用数据必须用绑定挂载。
+
+        命名卷由 Docker 以 root 创建，而容器以 UID 1000 运行，
+        会报 PermissionError: /data/.config.json。
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "stack.yml").read_text(encoding="utf-8")
+        idx = text.index("  buddycron:")
+        block = text[idx:text.index("  # ---", idx)]
+        self.assertIn("./data:/data", block)
+        self.assertNotIn("buddycron-data", block)
+
+    def test_password_is_required_not_silent(self):
+        """缺密码要明确报错，而不是默默生成一个让人找不到的随机串。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "stack.yml").read_text(encoding="utf-8")
+        # compose 的 `${VAR:?msg}` 语法：缺值时直接报错并显示 msg
+        self.assertIn("${BUDDYCRON_PASSWORD:?", text)
+
+    def test_caddyfile_forwards_required_headers(self):
+        """两个 header 缺一不可，缺了就是「全部 403」或「锁错人」。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("X-Forwarded-Proto", text)
+        self.assertIn("X-Forwarded-For", text)
+
+    def test_caddyfile_domain_from_env(self):
+        """域名从环境变量读，不在 Caddyfile 里写死 —— 否则改域名要改两处。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("{$DOMAIN}", text)
+
+
 if __name__ == "__main__":
     unittest.main()
