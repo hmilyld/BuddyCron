@@ -416,16 +416,22 @@ def serve(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = True) 
     paths.ensure_private_dir(paths.data_dir())
 
     config = auth.ensure_config()
-    hint = auth.current_password_hint()
-    if hint:
-        print()
-        print("=" * 52)
-        print(f"  登录密码：{hint}")
-        print("  已写入 config.json，登录成功一次后自动清除明文。")
-        print("  忘了密码：python3 cli.py passwd --show")
-        print("=" * 52)
-        print()
+    if config.get("from_env"):
+        # 密码来自环境变量：不打印明文（那是你自己填的），但要说明来源，
+        # 免得有人翻遍日志找不到「登录密码」那一行。
+        print("登录密码来自环境变量 BUDDYCRON_PASSWORD。")
         sys.stdout.flush()
+    else:
+        hint = auth.current_password_hint()
+        if hint:
+            print()
+            print("=" * 52)
+            print(f"  登录密码：{hint}")
+            print("  已写入 config.json，登录成功一次后自动清除明文。")
+            print("  忘了密码：python3 cli.py passwd --show")
+            print("=" * 52)
+            print()
+            sys.stdout.flush()
 
     server = ThreadingHTTPServer((host, port), Handler)
     scheme = "https" if _REQUIRE_HTTPS and public else "http"

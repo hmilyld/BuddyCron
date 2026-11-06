@@ -31,6 +31,14 @@ services:
       # 时区：签到按本地时间判定「今天」，时区错了会算错日期。
       TZ: Asia/Shanghai
 
+      # 登录密码。设了就用它，不设则首次启动随机生成并打印到容器日志。
+      #
+      # 建议设上：随机串要去翻 `docker compose logs` 才看得到，而 compose 里
+      # 写死一个自己记得住的密码更省事。改了这里就等于改密码（下次启动生效）。
+      #
+      # 别用太弱的密码 —— 这个服务持有你所有账号的 token。
+      BUDDYCRON_PASSWORD: "${BUDDYCRON_PASSWORD:-}"
+
       # 清掉宿主机带进来的代理变量。
       #
       # 为什么必须清：如果你的 shell 里设了 HTTP_PROXY=http://127.0.0.1:7897，

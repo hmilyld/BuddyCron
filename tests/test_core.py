@@ -940,5 +940,112 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(offenders, [], f"发现硬编码版本号：{offenders}")
 
 
+class EnvPasswordTests(unittest.TestCase):
+    """环境变量提供的密码。Docker 部署的主路径 —— 在 compose 里写一次，
+    比去翻容器日志找随机串方便得多。"""
+
+    def setUp(self):
+        import os, tempfile
+
+        self.tmp = tempfile.mkdtemp()
+        os.environ["BUDDYCRON_HOME"] = self.tmp
+        os.environ.pop("BUDDYCRON_PASSWORD", None)
+
+    def tearDown(self):
+        import os, shutil
+
+        os.environ.pop("BUDDYCRON_HOME", None)
+        os.environ.pop("BUDDYCRON_PASSWORD", None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_env_password_is_used(self):
+        import os
+        from core import auth
+
+        os.environ["BUDDYCRON_PASSWORD"] = "mypass123"
+        config = auth.ensure_config()
+        self.assertTrue(config.get("from_env"))
+        self.assertTrue(auth.verify("mypass123"))
+        self.assertFalse(auth.verify("wrong"))
+        # 环境变量提供了密码，就不该再留明文 hint
+        self.assertIsNone(auth.current_password_hint())
+
+    def test_changing_env_overrides_previous(self):
+        """改了环境变量就等于改密码 —— 否则「我改了却没生效」更让人困惑。"""
+        import os
+        from core import auth
+
+        os.environ["BUDDYCRON_PASSWORD"] = "first"
+        auth.ensure_config()
+        self.assertTrue(auth.verify("first"))
+
+        os.environ["BUDDYCRON_PASSWORD"] = "second"
+        auth.ensure_config()
+        self.assertTrue(auth.verify("second"))
+        self.assertFalse(auth.verify("first"))
+
+    def test_without_env_keeps_last_password(self):
+        """去掉环境变量后密码不该丢 —— 沿用上次算出的散列。"""
+        import os
+        from core import auth
+
+        os.environ["BUDDYCRON_PASSWORD"] = "keepme"
+        auth.ensure_config()
+
+        os.environ.pop("BUDDYCRON_PASSWORD", None)
+        config = auth.ensure_config()
+        self.assertFalse(config.get("from_env"))
+        self.assertTrue(auth.verify("keepme"))
+
+    def test_empty_env_falls_back_to_random(self):
+        """空字符串等于没设 —— 不该把空密码当有效值。"""
+        import os
+        from core import auth
+
+        os.environ["BUDDYCRON_PASSWORD"] = "   "
+        config = auth.ensure_config()
+        self.assertFalse(config.get("from_env"))
+        # 回落到随机生成，此时应有明文 hint
+        self.assertIsNotNone(auth.current_password_hint())
+
+    def test_passwd_refuses_in_env_mode(self):
+        """passwd 在环境变量模式下必须拒绝，而不是产出一个会被覆盖的新口令。"""
+        import io
+        import os
+        import sys
+        from contextlib import redirect_stderr
+
+        import cli
+
+        os.environ["BUDDYCRON_PASSWORD"] = "envpass"
+        before = None
+        from core import auth
+
+        auth.ensure_config()
+        before = auth._config()["password_hash"]
+
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            code = cli.main(["passwd"])
+        self.assertEqual(code, 1)
+        self.assertIn("BUDDYCRON_PASSWORD", buffer.getvalue())
+        # 散列没被改动
+        self.assertEqual(auth._config()["password_hash"], before)
+
+    def test_passwd_show_refuses_in_env_mode(self):
+        import io
+        import os
+        from contextlib import redirect_stderr
+
+        import cli
+
+        os.environ["BUDDYCRON_PASSWORD"] = "envpass"
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            code = cli.main(["passwd", "--show"])
+        self.assertEqual(code, 1)
+        self.assertIn("环境变量", buffer.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

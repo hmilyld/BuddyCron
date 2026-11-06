@@ -139,6 +139,19 @@ def cmd_web(args) -> int:
 def cmd_passwd(args) -> int:
     from core import auth
 
+    if auth.password_from_env():
+        # 环境变量模式下 passwd 的任何改动都活不过下一次启动。
+        # 直接拒绝比「改完再警告」诚实 —— 后者会产出一个马上被覆盖的新口令，
+        # 用户以为改成功了，重启后才发现没变。
+        print(
+            "密码来自环境变量 BUDDYCRON_PASSWORD，passwd 在这里改不会生效。\n"
+            "要改密码，改环境变量本身：\n"
+            "  docker compose: docker-compose.yml 里的 BUDDYCRON_PASSWORD\n"
+            "  systemd:        unit 文件里的 Environment=BUDDYCRON_PASSWORD=...",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.show:
         hint = auth.current_password_hint()
         if hint:

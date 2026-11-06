@@ -56,9 +56,33 @@ def ensure_config() -> dict:
     """读配置；缺密码或密钥就生成一个。
 
     返回的 ``created`` 字段表示本次是否新生成了密码——调用方据此决定要不要打印。
+
+    **环境变量优先**：设了 ``BUDDYCRON_PASSWORD`` 就用它，不再随机生成。
+    这是 Docker 部署的主路径 —— 在 compose 里写一次密码，比去翻容器日志找
+    随机串方便得多。设了就每次启动都对齐（改了环境变量就换密码），
+    否则「我改了却没生效」比不生效更让人困惑。
+
+    注意：用了环境变量就不再保留明文 hint —— 密码是你自己填的，不需要再记。
     """
     config = _config()
     created = False
+
+    env_password = (os.environ.get("BUDDYCRON_PASSWORD") or "").strip()
+    if env_password:
+        # 盐沿用已有的：换盐会让同一密码算出不同散列，白白多一次写盘。
+        salt = str(config.get("password_salt") or "") or secrets.token_hex(16)
+        digest = _hash(env_password, salt)
+        if config.get("password_hash") != digest or config.get("password_salt") != salt:
+            config["password_hash"] = digest
+            config["password_salt"] = salt
+            _save_config(config)
+        # 环境变量提供了密码，明文 hint 没有存在意义
+        config.pop("password_hint", None)
+        config["password_source"] = "env"
+        if not config.get("session_secret"):
+            config["session_secret"] = secrets.token_hex(32)
+            _save_config(config)
+        return {**config, "created": False, "from_env": True}
 
     if not config.get("password_hash") or not config.get("password_salt"):
         password = _random_password()
@@ -70,6 +94,7 @@ def ensure_config() -> dict:
         # 恰恰最可能没记下来。留到首次登录成功，两头都照顾到了。
         config["password_hint"] = password
         created = True
+        config.pop("password_source", None)
 
     if not config.get("session_secret"):
         config["session_secret"] = secrets.token_hex(32)
@@ -104,10 +129,23 @@ def current_password_hint() -> str | None:
     """还没登录成功时返回明文口令，供 ``cli.py passwd --show`` 查看。
 
     登录成功一次后就会被清掉，所以这不是长期后门。
+    环境变量模式下永远没有明文——密码在环境里，不在这里。
     """
+    if password_from_env():
+        return None
     config = ensure_config()
     hint = config.get("password_hint")
     return str(hint) if hint else None
+
+
+def password_from_env() -> str | None:
+    """当前是否由环境变量提供密码。返回原值（供提示语判断来源用）。
+
+    值本身不回显给终端 —— 它可能出现在 shell 历史或日志里，
+    而「密码来源」这件事知道就够了。
+    """
+    value = (os.environ.get("BUDDYCRON_PASSWORD") or "").strip()
+    return value or None
 
 
 def clear_password_hint() -> None:
@@ -178,7 +216,10 @@ def check_cookie(value: str | None) -> bool:
 
 
 def reset_password() -> str:
-    """重置口令并返回新值。供 ``cli.py passwd`` 使用。"""
+    """重置口令并返回新值。供 ``cli.py passwd`` 使用。
+
+    环境变量模式下这个改动会被下次启动覆盖 —— 调用方必须提示用户。
+    """
     config = _config()
     password = _random_password()
     salt = secrets.token_hex(16)
@@ -187,6 +228,7 @@ def reset_password() -> str:
     # 重设后同样保留明文，直到用户登录成功一次 —— 否则刚重设就看不到，
     # 而重设往往正是「我忘了密码」的场景。
     config["password_hint"] = password
+    config.pop("password_source", None)
     # 重置后旧会话应当失效：换掉签名密钥。
     config["session_secret"] = secrets.token_hex(32)
     _save_config(config)
@@ -197,11 +239,13 @@ def set_password(password: str) -> None:
     """设定指定口令（供 ``cli.py passwd <密码>``）。
 
     用户自己指定的口令不需要留明文——他知道自己设了什么。
+    环境变量模式下这个改动会被下次启动覆盖 —— 调用方必须提示用户。
     """
     config = _config()
     salt = secrets.token_hex(16)
     config["password_hash"] = _hash(password, salt)
     config["password_salt"] = salt
     config.pop("password_hint", None)
+    config.pop("password_source", None)
     config["session_secret"] = secrets.token_hex(32)
     _save_config(config)
