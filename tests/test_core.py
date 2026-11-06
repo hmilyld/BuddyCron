@@ -1579,7 +1579,41 @@ class DeployStackTests(unittest.TestCase):
             block = text[idx:next_idx if next_idx > 0 else len(text)]
             self.assertIn("NO_PROXY", block, f"{service} 没有清代理变量")
 
-    def test_data_volume_owner_matches_user(self):
+    def test_stack_image_tag_matches_version(self):
+        """stack.yml 的镜像 tag 必须和 core/version.py 一致。
+
+        这个 tag 是硬编码的默认值，发版时很容易忘改 —— 结果部署的是旧镜像，
+        而页面显示的版本号是新的，排查时非常迷惑。
+        """
+        import re
+        from pathlib import Path
+        from core import version
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "stack.yml").read_text(encoding="utf-8")
+        match = re.search(r"buddycron:\$\{BUDDYCRON_TAG:-([0-9.]+)\}", text)
+        self.assertIsNotNone(match, "stack.yml 里找不到镜像 tag 默认值")
+        self.assertEqual(
+            match.group(1),
+            version.VERSION,
+            f"stack.yml 的 tag ({match.group(1)}) 与版本号 ({version.VERSION}) 不一致",
+        )
+
+    def test_compose_and_stack_agree_on_essentials(self):
+        """两份编排文件的关键项必须一致，否则「本地测好了、线上不对」."""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+        stack = (root / "stack.yml").read_text(encoding="utf-8")
+
+        for text, name in ((compose, "docker-compose.yml"), (stack, "stack.yml")):
+            # 两份都要有这些，缺一个就是「某条路径上功能不工作」
+            self.assertIn("BUDDYCRON_IN_CONTAINER", text, f"{name} 缺 IN_CONTAINER")
+            self.assertIn("BUDDYCRON_HOME", text, f"{name} 缺 HOME")
+            self.assertIn("NO_PROXY", text, f"{name} 缺代理清理")
+            self.assertIn("user:", text, f"{name} 缺非 root 用户")
+            self.assertIn("/data", text, f"{name} 缺数据挂载")
         """数据卷必须能被容器写入。
 
         两种方式都行：

@@ -17,7 +17,7 @@ services:
   buddycron:
     # 用 ghcr 上的正式镜像，不在服务器上构建 —— 构建要拉 Node 和 Tailwind，
     # 而运行时根本用不到。更新版本只需改这里的 tag 再 deploy。
-    image: ghcr.io/hmilyld/buddycron:${BUDDYCRON_TAG:-0.1.1}
+    image: ghcr.io/hmilyld/buddycron:${BUDDYCRON_TAG:-0.1.2}
     restart: unless-stopped
 
     # 容器以非 root 运行。镜像里 /data 已 chown 成 1000:1000，

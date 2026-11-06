@@ -4,13 +4,29 @@ WorkBuddy 多账号签到与积分工具。CLI + 本地 Web 页，零第三方�
 
 ## 快速开始
 
+本地或单机用 `docker-compose.yml`（绑定挂载，数据直接可见）：
+
 ```bash
 mkdir -p data
 docker compose up -d
 docker compose logs -f buddycron    # 首次会打印登录密码
 ```
 
-浏览器打开 `http://127.0.0.1:8787/`，用打印出来的密码登录，点「添加账号」逐个授权。
+服务器上带域名用 `stack.yml`（命名卷 + Caddy 自动证书）：
+
+```bash
+# 改 stack.yml 里的域名和密码
+docker stack deploy -c stack.yml buddycron
+```
+
+浏览器打开对应地址，用打印出来的密码登录，点「添加账号」逐个授权。
+
+两份文件的关系：
+
+| 文件 | 用在哪 | 数据 | 反代 |
+|---|---|---|---|
+| `docker-compose.yml` | 本地 / 单机 | 绑定挂载 `./data` | 无，只绑 127.0.0.1 |
+| `stack.yml` | 服务器 / swarm | 命名卷 | 自带 Caddy |
 
 不用 Docker 也可以：
 

@@ -22,6 +22,13 @@ services:
     volumes:
       # 所有持久化数据都在这一层：账号库、口令配置、日志。
       # 更新镜像时这个目录不动，所以换版本不会丢账号。
+      #
+      # 绑定挂载要求宿主机目录已存在且属主正确，否则报
+      # PermissionError: /data/.config.json：
+      #   mkdir -p ./data && chown -R $(id -u):$(id -g) ./data
+      #
+      # 想改用命名卷（不用建目录）就换成 `- buddycron-data:/data`，
+      # 镜像里的 /data 已 chown 成 1000，卷初始化会继承属主。
       - ./data:/data
 
     environment:
