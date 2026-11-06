@@ -33,12 +33,20 @@ DIST_DIR = WEB_DIR / "dist"
 # 编译产物的白名单。只放行这几个文件 —— 不给任意路径读取，避免目录穿越。
 ASSETS = {
     "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/favicon.svg": ("favicon.svg", "image/svg+xml"),
 }
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 MAX_BODY = 4096
 # 不需要登录就能访问的路径。登录页本身、它的资源、版本号（登录页要显示）、
 # 以及健康检查。
-PUBLIC_PATHS = {"/login", "/api/login", "/api/version", "/assets/app.css", "/favicon.ico"}
+PUBLIC_PATHS = {
+    "/login",
+    "/api/login",
+    "/api/version",
+    "/assets/app.css",
+    "/favicon.svg",
+    "/favicon.ico",
+}
 
 # 公网部署时由环境变量追加允许的 Host。反向代理（Caddy/Nginx）会把真实域名
 # 写进 Host 头，所以这里必须能配上，否则请求全被 403。
@@ -178,8 +186,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in PUBLIC_PATHS:
             if path == "/login":
                 return self._serve_login()
-            if path == "/assets/app.css":
+            if path in ASSETS:
                 return self._serve_asset(path)
+            if path == "/favicon.ico":
+                # 浏览器和老工具会盲猜 /favicon.ico。重定向到 svg，
+                # 比在那里放一个 404 干净 —— 有些客户端会把 404 记进日志。
+                return self._redirect("/favicon.svg")
             if path == "/api/version":
                 return self._version()
             return self._error(404, "未知路径")

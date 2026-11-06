@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BuddyCron · 签到簿</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body class="min-h-screen antialiased">
@@ -20,7 +21,7 @@
         <span id="version" class="font-mono text-[0.7rem] text-ink-3" title=""></span>
       </div>
       <p class="mt-2 text-[0.8rem] leading-relaxed text-ink-2">
-        每个账号每天盖一个章 v2
+        每个账号每天盖一个章
       </p>
     </div>
     <div class="text-right text-[0.72rem] leading-relaxed text-ink-3">
@@ -100,27 +101,17 @@
 
   </div>
 
-  <!-- 逐账号积分 + 到期日历。整宽两列：账号多时不会拉成一条长链，
-       到期日历和账号明细并排也刚好填满这一行。 -->
-  <div class="mt-10 grid gap-x-10 gap-y-10 lg:grid-cols-2">
-
-  <section id="credits-accounts" class="rise hidden" style="animation-delay:120ms" aria-labelledby="cred-acc-h">
-    <div class="mb-3 flex items-baseline justify-between gap-3">
+  <!-- 各账号积分 + 到期明细，按账号折叠。
+       为什么合并成一个区块：原来分成「各账号积分」和「到期日历」两栏，
+       账号一多右边会拉成很长一条，左边却固定高度 —— 两栏必然失衡。
+       而且这两块本来就是同一份数据的两种视角，拆开反而让人来回对照。 -->
+  <section id="credits-accounts" class="rise mt-10 hidden" style="animation-delay:120ms" aria-labelledby="cred-acc-h">
+    <div class="mb-3 flex flex-wrap items-baseline justify-between gap-3">
       <h2 id="cred-acc-h" class="text-[0.78rem] font-medium text-ink-2">各账号积分</h2>
-      <span class="text-[0.72rem] text-ink-3">按剩余从少到多</span>
+      <span class="text-[0.72rem] text-ink-3">按剩余从少到多 · 点开看到期明细</span>
     </div>
-    <div id="cred-list" class="space-y-4"></div>
+    <div id="cred-list" class="border-y border-rule"></div>
   </section>
-
-  <section id="credits-expiry" class="rise hidden" style="animation-delay:130ms" aria-labelledby="cred-exp-h">
-    <div class="mb-3 flex items-baseline justify-between gap-3">
-      <h2 id="cred-exp-h" class="text-[0.78rem] font-medium text-ink-2">到期日历</h2>
-      <span class="text-[0.72rem] text-ink-3">按时间排</span>
-    </div>
-    <div id="cred-expiry-list" class="space-y-2"></div>
-  </section>
-
-  </div>
 
   <!-- 账号 -->
   <section class="rise mt-10" style="animation-delay:140ms" aria-labelledby="acc-h">
@@ -326,6 +317,62 @@
   border-color: #463c31;
 }
 
+/* 积分行折叠。默认只看「谁快用完了」，点开看「哪笔什么时候过期」。
+   账号多时全摊开就是几十条，翻起来找不到重点。 */
+.cred-row {
+  border-bottom: 1px solid var(--color-rule);
+}
+.cred-row:last-child {
+  border-bottom: 0;
+}
+.cred-summary {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.7rem 0.25rem 0.7rem 0;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 160ms ease;
+}
+.cred-summary::-webkit-details-marker {
+  display: none;
+}
+/* 展开指示。用 CSS 画的三角而不是字符 —— 字符在不同字体下大小不一，
+   而且会被屏幕阅读器念出来（summary 本身已经有语义了）。
+   绝对定位到标题行的右侧，而不是跟在 flex 流末尾 —— 后者会被挤到
+   内容块底部，看起来像另一个东西。
+   折叠时指向右（▶ 表示「可展开」），展开时指向下（▼ 表示「已展开」）。 */
+.cred-summary::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0.95rem;
+  width: 0;
+  height: 0;
+  border-top: 4px solid var(--color-ink-3);
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  transform: rotate(-90deg);
+  transition: transform 200ms ease, border-top-color 160ms ease;
+}
+.cred-row[open] > .cred-summary::after {
+  transform: rotate(0deg);
+  border-top-color: var(--color-seal-soft);
+}
+.cred-summary:hover {
+  background: var(--color-paper-2);
+}
+.cred-summary:hover::after {
+  border-top-color: var(--color-ink-2);
+}
+.cred-row[open] > .cred-summary {
+  background: var(--color-paper-2);
+}
+.cred-detail {
+  padding: 0.5rem 0.25rem 0.85rem;
+}
+
 /* 最近一轮的每条结果 */
 .result {
   display: flex;
@@ -487,12 +534,10 @@ function renderCredits(accounts) {
   const withCredits = accounts.filter((a) => a.credits && a.credits.total);
   const summaryBox = $('credits-summary');
   const listBox = $('credits-accounts');
-  const expiryBoxSection = $('credits-expiry');
 
   if (!withCredits.length) {
     summaryBox.classList.add('hidden');
     listBox.classList.add('hidden');
-    expiryBoxSection.classList.add('hidden');
     return;
   }
   summaryBox.classList.remove('hidden');
@@ -528,51 +573,16 @@ function renderCredits(accounts) {
     expiryBox.classList.add('hidden');
   }
 
-  // --- 到期日历：把所有账号的包级到期日摊平，按时间排 ---
-  const allPackages = [];
-  for (const account of withCredits) {
-    for (const pack of account.credits.packages || []) {
-      if (!pack.expiresAt || Number(pack.remain || 0) <= 0) continue;
-      allPackages.push({
-        ...pack,
-        account: account.nickname || account.uid || '未命名',
-      });
-    }
-  }
-  allPackages.sort((x, y) => x.expiresAt.localeCompare(y.expiresAt));
-
-  const allBox = $('credits-expiry');
-  if (allPackages.length) {
-    allBox.classList.remove('hidden');
-    $('cred-expiry-list').innerHTML = allPackages.map((p) => {
-      const d = p.daysLeft;
-      const urgent = typeof d === 'number' && d <= 7;
-      const expired = typeof d === 'number' && d < 0;
-      const tone = expired ? 'text-seal-soft' : (urgent ? 'text-amber-soft' : 'text-ink-2');
-      const tail = expired ? '已过期' : (typeof d === 'number' ? `剩 ${d} 天` : '');
-      const pct = p.total > 0 ? Math.max(0, Math.min(100, (p.remain / p.total) * 100)) : 0;
-      return `<div class="border-l-2 ${urgent || expired ? 'border-seal-soft' : 'border-rule'} pl-3">
-        <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <span class="font-mono text-[0.72rem] ${tone}">${esc(p.expiresAt)}</span>
-          <span class="font-mono text-[0.78rem] font-semibold ${tone} tabular-nums">${num(p.remain)}</span>
-        </div>
-        <div class="mt-0.5 flex items-baseline justify-between gap-3 text-[0.68rem] text-ink-3">
-          <span class="min-w-0 truncate">${esc(p.account)} · ${esc(p.name)}</span>
-          <span class="shrink-0 font-mono">${tail}</span>
-        </div>
-        <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${urgent || expired ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)'}"></span></div>
-      </div>`;
-    }).join('');
-  } else {
-    allBox.classList.add('hidden');
-  }
-
-  // --- 逐账号：按剩余从少到多 ---
+  // --- 逐账号：每行可折叠，展开看到期明细 ---
+  //
+  // 为什么折叠而不是摊平：一个账号可能有好几个积分包，账号多了全摊开就是
+  // 几十条，翻起来找不到重点。折叠后默认只看「谁快用完了」，
+  // 想知道「哪笔什么时候过期」再点开那一个账号。
   const sorted = [...withCredits].sort(
     (a, b) => Number(a.credits.remain || 0) - Number(b.credits.remain || 0)
   );
 
-  $('cred-list').innerHTML = sorted.map((a) => {
+  $('cred-list').innerHTML = sorted.map((a, index) => {
     const c = a.credits;
     const cap = Number(c.remain || 0) + Number(c.used || 0);
     const pct = cap > 0 ? Math.max(0, Math.min(100, (Number(c.remain || 0) / cap) * 100)) : 0;
@@ -580,25 +590,59 @@ function renderCredits(accounts) {
     const low = pct < 10;
     const barColor = low ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)';
 
+    // 包级明细：只留还有余额的，已过期的单独标出来。
+    const packages = (c.packages || [])
+      .filter((p) => p.expiresAt && Number(p.remain || 0) > 0)
+      .sort((x, y) => (x.expiresAt || '').localeCompare(y.expiresAt || ''));
+
     const nearest = c.nearestExpiry;
-    const expiryText = nearest
-      ? `${nearest.expiresAt} 到期`
+    const nearestDays = nearest ? nearest.daysLeft : null;
+    const urgentNearest = typeof nearestDays === 'number' && nearestDays <= 7;
+
+    // 摘要行右侧的到期提示：没有包信息时退回到 nearestExpiry。
+    const expiryHint = nearest
+      ? `${nearest.expiresAt}${typeof nearestDays === 'number' ? ` · 剩 ${nearestDays} 天` : ''}`
       : '';
 
-    return `<div class="border-l-2 border-rule pl-3">
-      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div class="flex items-baseline gap-2">
-          <span class="text-[0.82rem] font-semibold text-ink">${esc(a.nickname || a.uid || '未命名')}</span>
-          ${c.plan ? `<span class="tag tag-quiet">${esc(c.plan)}</span>` : ''}
+    const detail = packages.length
+      ? packages.map((p) => {
+          const d = p.daysLeft;
+          const urgent = typeof d === 'number' && d <= 7;
+          const expired = typeof d === 'number' && d < 0;
+          const tone = expired ? 'text-seal-soft' : (urgent ? 'text-amber-soft' : 'text-ink-3');
+          const tail = expired ? '已过期' : (typeof d === 'number' ? `剩 ${d} 天` : '');
+          const ppct = p.total > 0 ? Math.max(0, Math.min(100, (p.remain / p.total) * 100)) : 0;
+          return `<div class="flex items-baseline justify-between gap-3">
+            <span class="min-w-0 truncate text-[0.72rem] text-ink-3">${esc(p.name)}</span>
+            <span class="shrink-0 font-mono text-[0.72rem] ${tone} tabular-nums">
+              ${num(p.remain)}
+              <span class="ml-2 text-ink-3">${esc(p.expiresAt)}</span>
+              ${tail ? `<span class="ml-1">${tail}</span>` : ''}
+            </span>
+          </div>
+          <div class="cred-bar mt-1 mb-2.5"><span style="width:${ppct}%;background:${urgent || expired ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)'}"></span></div>`;
+        }).join('')
+      : '<div class="text-[0.72rem] text-ink-3">这个账号没有可显示的积分包明细。</div>';
+
+    return `<details class="cred-row" ${index === 0 ? 'open' : ''}>
+      <summary class="cred-summary">
+        <div class="min-w-0 flex-1 pr-5">
+          <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div class="flex items-baseline gap-2">
+              <span class="text-[0.82rem] font-semibold text-ink">${esc(a.nickname || a.uid || '未命名')}</span>
+              ${c.plan ? `<span class="tag tag-quiet">${esc(c.plan)}</span>` : ''}
+            </div>
+            <div class="flex items-baseline gap-1.5">
+              <span class="font-mono text-[0.95rem] font-semibold ${low ? 'text-seal-soft' : 'text-ink'} tabular-nums">${num(c.remain)}</span>
+              <span class="font-mono text-[0.68rem] text-ink-3 tabular-nums">/ ${num(cap)}</span>
+            </div>
+          </div>
+          <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${barColor}"></span></div>
+          ${expiryHint ? `<div class="mt-1.5 font-mono text-[0.66rem] ${urgentNearest ? 'text-amber-soft' : 'text-ink-3'}">最近 ${expiryHint}</div>` : ''}
         </div>
-        <div class="flex items-baseline gap-1.5">
-          <span class="font-mono text-[0.95rem] font-semibold ${low ? 'text-seal-soft' : 'text-ink'} tabular-nums">${num(c.remain)}</span>
-          <span class="font-mono text-[0.68rem] text-ink-3 tabular-nums">/ ${num(cap)}</span>
-        </div>
-      </div>
-      <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${barColor}"></span></div>
-      ${expiryText ? `<div class="mt-1.5 font-mono text-[0.66rem] text-ink-3">${expiryText}</div>` : ''}
-    </div>`;
+      </summary>
+      <div class="cred-detail">${detail}</div>
+    </details>`;
   }).join('');
 
   const at = withCredits[0].credits.at

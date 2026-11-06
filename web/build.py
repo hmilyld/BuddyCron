@@ -49,6 +49,13 @@ def build() -> int:
         out = DIST / name
         shutil.copyfile(src, out)
         print(f"  -> {out} ({out.stat().st_size} 字节)")
+
+    # favicon 不压缩：它已经很小（几百字节），压缩收益为零。
+    icon_src = SRC / "favicon.svg"
+    if icon_src.exists():
+        icon_out = DIST / "favicon.svg"
+        shutil.copyfile(icon_src, icon_out)
+        print(f"  -> {icon_out} ({icon_out.stat().st_size} 字节)")
     return 0
 
 

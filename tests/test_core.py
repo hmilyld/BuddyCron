@@ -1047,5 +1047,40 @@ class EnvPasswordTests(unittest.TestCase):
         self.assertIn("环境变量", buffer.getvalue())
 
 
+class AssetTests(unittest.TestCase):
+    """界面产物。CI 会检查它们和源码同步，这里检查它们本身有效。"""
+
+    def test_favicon_is_valid_svg(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        for name in ("web/src/favicon.svg", "web/dist/favicon.svg"):
+            path = root / name
+            self.assertTrue(path.exists(), f"缺少 {name}")
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("<svg", text)
+            self.assertIn('xmlns="http://www.w3.org/2000/svg"', text)
+            # 标签要闭合，否则某些浏览器会整块丢弃
+            self.assertEqual(text.count("<svg"), text.count("</svg>"))
+
+    def test_favicon_is_linked_in_both_pages(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        for name in ("web/src/index.html", "web/src/login.html"):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIn('rel="icon"', text, f"{name} 缺少 favicon 链接")
+            self.assertIn("/favicon.svg", text)
+
+    def test_no_stray_text_in_heading(self):
+        """副标题不该带调试残留（曾经出现过「盖一个章 v2」）。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+        self.assertIn("每个账号每天盖一个章", text)
+        self.assertNotIn("盖一个章 v", text)
+
+
 if __name__ == "__main__":
     unittest.main()
