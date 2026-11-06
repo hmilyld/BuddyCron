@@ -18,6 +18,7 @@
 
 - 改界面后 `python3 web/build.py` 并提交 `web/dist/`。`ci.yml` 会对比，不同步就失败。
 - 改版本号只改 `core/version.py`。测试会扫全仓库找第二个 `x.y.z` 字面量。
+- **发版必须同时更新 `CHANGELOG.md`**。Release 正文从那里抽，缺段落 CI 直接失败。
 - 改完跑 `python3 -m unittest discover -s tests`。
 - 新增端口要慎重：测试只允许 `8787`。
 - 提交信息用 Conventional Commits：`feat(ui): ...`。

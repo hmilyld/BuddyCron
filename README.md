@@ -192,14 +192,36 @@ python3 web/build.py                     # 编译 Tailwind → web/dist/
 ### 发布
 
 ```bash
-vim core/version.py              # 改版本号（只改这一处）
-python3 web/build.py             # 改了界面就重编
+vim core/version.py              # 1. 改版本号（只改这一处）
+vim CHANGELOG.md                 # 2. 把 [Unreleased] 改成 [0.2.0] - 日期，写变更
+python3 web/build.py             # 3. 改了界面就重编
 git commit -am "chore: 升到 v0.2.0" && git push
-git tag v0.2.0 && git push origin v0.2.0    # 这一步才触发发布
+git tag v0.2.0 && git push origin v0.2.0    # 4. 这一步才触发发布
 ```
 
-tag 与 `core/version.py` 不一致时 CI 直接失败。镜像推到
-`ghcr.io/<owner>/buddycron`，标签 `0.2.0` / `0.2` / `latest`，amd64 + arm64。
+CI 有三道校验，任一不过就不产出镜像：
+
+1. tag 与 `core/version.py` 一致
+2. `CHANGELOG.md` 里有对应版本段落（Release 正文从这里抽，缺了就是空白页）
+3. 测试全绿
+
+镜像推到 `ghcr.io/<owner>/buddycron`，标签 `0.2.0` / `0.2` / `latest`，amd64 + arm64。
+
+CHANGELOG 的格式：
+
+```markdown
+## [Unreleased]
+
+## [0.2.0] - 2026-12-01
+
+### 新增
+- ...
+
+### 修复
+- ...
+```
+
+`Unreleased` 是开发时累积变更的地方，发版时把它改成正式版本号并写日期。
 
 ## 公网部署
 

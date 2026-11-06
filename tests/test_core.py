@@ -930,7 +930,11 @@ class VersionTests(unittest.TestCase):
         offenders = []
         pattern = re.compile(r"""["']v?[0-9]+\.[0-9]+\.[0-9]+["']""")
         for path in root.glob("**/*.py"):
-            if "__pycache__" in str(path) or path.name == "version.py":
+            # 跳过测试与版本文件本身：测试里本来就要写各种版本字面量
+            # （"99.99.99" 用来验证「查不到」的分支）。
+            if "__pycache__" in str(path) or path.name in ("version.py", "changelog.py"):
+                continue
+            if "tests" in path.parts:
                 continue
             for line_no, line in enumerate(
                 path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1
@@ -1506,6 +1510,42 @@ class ThemeTests(unittest.TestCase):
             import re
             keys.update(re.findall(r"localStorage\.(?:getItem|setItem)\('([^']+)'", text))
         self.assertEqual(keys, {"buddycron-theme"})
+
+
+class ChangelogTests(unittest.TestCase):
+    """CHANGELOG 与版本号。发布时 CI 从这里抽 Release 正文 ——
+    段落缺失会让 Release 变成空白页。"""
+
+    def test_current_version_has_changelog_entry(self):
+        from core import version
+        import scripts.changelog as changelog
+
+        body = changelog.extract(version.VERSION)
+        self.assertTrue(
+            body, f"CHANGELOG.md 缺少 [{version.VERSION}] 段落"
+        )
+
+    def test_versions_are_semver(self):
+        import re
+        import scripts.changelog as changelog
+
+        for v in changelog.versions():
+            self.assertRegex(v, r"^[0-9]+\.[0-9]+\.[0-9]+$", f"{v} 不是合法语义化版本")
+
+    def test_versions_newest_first(self):
+        """CHANGELOG 约定最新版本在最上面 —— 抽段落时不依赖顺序，但人读的时候依赖。"""
+        import scripts.changelog as changelog
+
+        versions = changelog.versions()
+        if len(versions) < 2:
+            self.skipTest("只有一个版本，无从比较")
+        self.assertEqual(versions, sorted(versions, reverse=True))
+
+    def test_missing_version_returns_empty(self):
+        """查不到就返回空串，由调用方决定报错 —— 不抛异常，方便 CI 分支判断。"""
+        import scripts.changelog as changelog
+
+        self.assertEqual(changelog.extract("99.99.99"), "")
 
 
 if __name__ == "__main__":

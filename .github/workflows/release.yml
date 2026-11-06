@@ -54,6 +54,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: 校验 CHANGELOG 有对应段落
+        run: |
+          # 没有段落就不该发布 —— Release 正文会是空的，读者看不出这个版本
+          # 改了什么。这一步在构建镜像之前，失败就不产出任何产物。
+          VERSION="${{ steps.check.outputs.version }}"
+          if ! python3 scripts/changelog.py "$VERSION" > /dev/null; then
+            echo "::error::CHANGELOG.md 缺少 [$VERSION] 段落。先补 CHANGELOG 再打 tag。"
+            exit 1
+          fi
+          echo "CHANGELOG 段落已就绪"
+
       - name: 跑测试
         run: python3 -m unittest discover -s tests -v
 
@@ -125,37 +136,56 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      - name: 生成 Release 正文
+        id: notes
+        run: |
+          VERSION="${{ needs.verify.outputs.version }}"
+          # 上半：这个版本改了什么（来自 CHANGELOG，人话）
+          # 下半：怎么部署（固定内容，不用每次改）
+          {
+            echo "## 变更"
+            echo
+            python3 scripts/changelog.py "$VERSION"
+            echo
+            echo "## 镜像"
+            echo
+            echo '```bash'
+            echo "docker pull ${{ env.IMAGE }}:$VERSION"
+            echo '```'
+            echo
+            echo "或直接："
+            echo
+            echo '```bash'
+            echo "docker pull ${{ env.IMAGE }}:latest"
+            echo '```'
+            echo
+            echo "支持 amd64 与 arm64。"
+            echo
+            echo "## 快速开始"
+            echo
+            echo '```bash'
+            echo "mkdir -p data"
+            echo "docker compose up -d"
+            echo "docker compose logs -f buddycron   # 首次会打印登录密码"
+            echo '```'
+            echo
+            echo "浏览器打开 \`http://127.0.0.1:8787/\`，用打印出来的密码登录，"
+            echo "点「添加账号」逐个授权。"
+            echo
+            echo "数据都在 \`./data\`，更新版本时 \`docker compose up -d --build\` 不会丢账号。"
+            echo
+            echo "## 说明"
+            echo
+            echo "非官方工具，与 WorkBuddy / CodeBuddy 无关联。接口从官方前端逆向所得，"
+            echo "服务端改版可能失效。仅用于管理你自己名下的账号。"
+          } > /tmp/release-notes.md
+          echo "正文已生成，$(wc -l < /tmp/release-notes.md) 行"
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
           name: BuddyCron ${{ needs.verify.outputs.tag }}
-          generate_release_notes: true
-          body: |
-            ## 镜像
-
-            ```bash
-            docker pull ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
-            ```
-
-            或直接：
-
-            ```bash
-            docker pull ${{ env.IMAGE }}:latest
-            ```
-
-            ## 快速开始
-
-            ```bash
-            mkdir -p data
-            # 从仓库根目录的 docker-compose.yml 起
-            docker compose up -d
-            docker compose logs -f buddycron   # 首次会打印登录密码
-            ```
-
-            数据都在 `./data`，更新版本时 `docker compose up -d --build` 不会丢账号。
-
-            ## 说明
-
-            非官方工具，与 WorkBuddy / CodeBuddy 无关联。接口从官方前端逆向所得，
-            服务端改版可能失效。仅用于管理你自己名下的账号。
+          # 不用 generate_release_notes：它按 commit 列表生成，读者看到的是
+          # 「fix(ci): ...」这种开发者视角的碎片，而不是「这个版本带来了什么」。
+          body_path: /tmp/release-notes.md
