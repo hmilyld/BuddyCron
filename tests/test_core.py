@@ -1072,6 +1072,36 @@ class AssetTests(unittest.TestCase):
             self.assertIn('rel="icon"', text, f"{name} 缺少 favicon 链接")
             self.assertIn("/favicon.svg", text)
 
+    def test_favicon_has_no_background_plate(self):
+        """图标不能铺底色。
+
+        之前垫了一层深色纸底，结果在浅色标签栏上看起来就是一圈黑边。
+        朱红本身在两种标签栏上都够醒目，不需要衬底。
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/favicon.svg").read_text(encoding="utf-8")
+        # 不允许铺满整个 viewBox 的 32×32 底块
+        self.assertNotIn('width="32" height="32" rx="7"', text)
+        self.assertNotIn('fill="#14120f"', text)
+
+    def test_favicon_keeps_safe_margin(self):
+        """图标本体要留一点边距，否则圆角会被裁掉。"""
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/favicon.svg").read_text(encoding="utf-8")
+        match = re.search(r'<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"', text)
+        self.assertIsNotNone(match, "找不到图标本体的 rect")
+        x, y, w, h = (int(g) for g in match.groups())
+        # 不能贴到 0，也不能超出 32
+        self.assertGreater(x, 0)
+        self.assertGreater(y, 0)
+        self.assertLessEqual(x + w, 32)
+        self.assertLessEqual(y + h, 32)
+
     def test_no_stray_text_in_heading(self):
         """副标题不该带调试残留（曾经出现过「盖一个章 v2」）。"""
         from pathlib import Path
