@@ -8,6 +8,24 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-06
+
+### 修复
+
+- **镜像地址大小写**：`github.repository` 保留仓库名的大小写（`hmilyld/BuddyCron`），
+  而 Docker 镜像名必须全小写。原先 Release 里写的是 `ghcr.io/hmilyld/BuddyCron`，
+  复制那条 `docker pull` 会失败。现在固定为 `ghcr.io/hmilyld/buddycron`。
+- **CI 触发分支**：工作流里写的 `main`，而仓库默认分支是 `master`，推送到 master
+  不会触发 CI。已改为 `master`。
+
+### 变更
+
+- **发布说明改从 CHANGELOG 生成**。原先用 GitHub 的 `generate_release_notes`，
+  它按 commit 列表生成，读者看到的是「fix(ci): ...」这种开发者视角的碎片。
+  现在 `CHANGELOG.md` 是唯一来源，`scripts/changelog.py` 负责抽取。
+- **CI 增加 CHANGELOG 校验**：tag 对应的版本在 `CHANGELOG.md` 里没有段落时直接失败，
+  避免发布出空白说明。
+
 ## [0.1.0] - 2026-11-06
 
 首个版本。
