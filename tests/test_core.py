@@ -1137,10 +1137,9 @@ class MergedAccountRowTests(unittest.TestCase):
 
         root = Path(__file__).resolve().parent.parent
         text = (root / "web/src/index.html").read_text(encoding="utf-8")
-        # head 里包含删除按钮，且 head 被放进 summary
         self.assertIn('data-del=', text)
         head_start = text.index("const head = ")
-        summary_start = text.index("<summary class=\"acct-summary\">${head}</summary>")
+        summary_start = text.index('<summary class="acct-summary">${head}${actions}</summary>')
         self.assertLess(head_start, summary_start)
 
     def test_delete_click_does_not_toggle_details(self):
@@ -1151,6 +1150,49 @@ class MergedAccountRowTests(unittest.TestCase):
         text = (root / "web/src/index.html").read_text(encoding="utf-8")
         self.assertIn("event.preventDefault()", text)
         self.assertIn("event.stopPropagation()", text)
+
+    def test_actions_are_siblings_not_absolute(self):
+        """删除与展开箭头必须在同一个 flex 操作区里。
+
+        之前两个都用绝对定位、各算各的 top，永远对不齐 —— 视觉上就是「错位」。
+        放进同一个 flex 容器后，垂直对齐由布局保证，不靠手调像素。
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+
+        # 两者都在 acct-actions 里
+        self.assertIn('class="acct-actions"', text)
+        actions_idx = text.index('class="acct-actions"')
+        self.assertIn("data-del=", text[actions_idx:actions_idx + 400])
+        self.assertIn("acct-caret", text[actions_idx:actions_idx + 400])
+
+        # 不该再有绝对定位的删除按钮 / ::after 箭头
+        css = text[:text.index("<script>")]
+        self.assertNotIn("position: absolute", css.split(".acct-summary {")[1].split(".acct-name")[0])
+
+    def test_padding_on_row_not_container(self):
+        """留白必须在 summary 上，不是外层容器。
+
+        放外层的话 hover 背景只盖内容区、不含上下留白，看起来像浮在半空；
+        而且元素会贴到行边。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "web/src/index.html").read_text(encoding="utf-8")
+        css = text[:text.index("<script>")]
+
+        # .acct 本身不该有 padding（留白交给 summary / acct-plain）
+        block = re.search(r"\.acct \{(.*?)\}", css, re.S).group(1)
+        self.assertNotIn("padding", block)
+
+        # summary 与 plain 共享一段带 padding 的规则
+        shared = re.search(r"\.acct-summary,\s*\.acct-plain \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(shared, "找不到 summary/plain 共享的留白规则")
+        self.assertIn("padding", shared.group(1))
 
 
 if __name__ == "__main__":

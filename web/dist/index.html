@@ -201,20 +201,29 @@
 /* 账号行。左侧档案、右上角删除 + 展开箭头。
    删除按钮和箭头都绝对定位 —— 放进 flex 流会被内容长度挤到奇怪位置，
    而且点删除会顺带触发折叠。 */
+/* 账号行。用 flex 而不是绝对定位：删除按钮和展开箭头放进同一个右侧操作区，
+   天然在同一行对齐；hover 背景靠把 padding 放在 summary 上覆盖整行。
+
+   之前用绝对定位的问题：两个元素各算各的 top，永远对不齐；而且 padding
+   留在外层容器上，hover 背景只盖住内容区、不含上下留白，看起来像浮在半空。 */
 .acct {
-  position: relative;
-  display: block;
-  padding: 0.95rem 0;
   border-bottom: 1px solid var(--color-rule);
 }
 .acct:last-child {
   border-bottom: 0;
 }
+.acct-summary,
+.acct-plain {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  /* 水平留白放在这一层：hover 背景才能盖满整行，元素也不会贴边。 */
+  padding: 0.95rem 0.7rem;
+  transition: background-color 160ms ease;
+}
 .acct-summary {
-  display: block;
   cursor: pointer;
   list-style: none;
-  transition: background-color 160ms ease;
 }
 .acct-summary::-webkit-details-marker {
   display: none;
@@ -222,12 +231,21 @@
 .acct-summary:hover {
   background: var(--color-paper-2);
 }
-/* 展开指示：右上角，删除按钮左侧 */
-.acct-summary::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 1.15rem;
+.acct-expandable[open] > .acct-summary {
+  background: var(--color-paper-2);
+}
+/* 右侧操作区：删除 + 展开箭头，同一行水平排列，垂直对齐到昵称那一行。 */
+.acct-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+}
+/* 展开指示。用 CSS 画的三角而不是字符 —— 字符在不同字体下大小不一，
+   而且会被屏幕阅读器念出来（summary 本身已经有语义了）。
+   折叠时指向右（▶ 表示「可展开」），展开时指向下（▼ 表示「已展开」）。 */
+.acct-caret {
   width: 0;
   height: 0;
   border-top: 4px solid var(--color-ink-3);
@@ -236,18 +254,16 @@
   transform: rotate(-90deg);
   transition: transform 200ms ease, border-top-color 160ms ease;
 }
-.acct-expandable[open] > .acct-summary::after {
+.acct-expandable[open] .acct-caret {
   transform: rotate(0deg);
   border-top-color: var(--color-seal-soft);
 }
-.acct-summary:hover::after {
+.acct-summary:hover .acct-caret {
   border-top-color: var(--color-ink-2);
 }
-/* 删除按钮：右上角，与箭头水平对齐 */
-.acct-del {
-  position: absolute;
-  right: 1.15rem;
-  top: 0.75rem;
+/* 明细区与内容列对齐，让人看出它属于上面那个账号。 */
+.acct .cred-detail {
+  padding: 0 0.7rem 0.9rem calc(0.7rem + 0.85rem);
 }
 .acct-name {
   font-size: 0.9rem;
@@ -353,12 +369,6 @@
 }
 .log-select:hover {
   border-color: #463c31;
-}
-
-/* 积分明细（展开区）。放在账号行下面，缩进对齐内容列而不是整行，
-   这样能看出它属于上面那个账号。 */
-.cred-detail {
-  padding: 0 0 0.85rem;
 }
 
 /* 最近一轮的每条结果 */
@@ -654,23 +664,30 @@ function renderAccounts(accounts) {
         }).join('')
       : '';
 
-    // 删除按钮必须在 summary **内部**：details 折叠时会隐藏 summary 之外的
-    // 所有子元素，放外面就点不到了。点击处理里已经 preventDefault +
-    // stopPropagation，不会顺带触发折叠。
-    const head = `<div class="min-w-0 flex-1 pr-12">
+    // 右侧操作区：删除 + 展开箭头，同一行水平排列。
+    // 展开箭头只在该行有明细时出现 —— 没有明细的普通行放个箭头会误导。
+    const actions = detail
+      ? `<div class="acct-actions">
+          <button class="btn btn-danger acct-del" data-del="${esc(a.id)}">删除</button>
+          <span class="acct-caret" aria-hidden="true"></span>
+        </div>`
+      : `<div class="acct-actions">
+          <button class="btn btn-danger acct-del" data-del="${esc(a.id)}">删除</button>
+        </div>`;
+
+    const head = `<div class="min-w-0 flex-1">
       <div class="acct-name">${esc(a.nickname || a.uid || '未命名')}${tags.join('')}</div>
       <div class="acct-meta">${esc(a.uid || a.id)}${a.domain ? ' · ' + esc(a.domain) : ''}</div>
       <div class="acct-state">${state}</div>
       ${creditsBlock}
-    </div>
-    <button class="btn btn-danger acct-del" data-del="${esc(a.id)}">删除</button>`;
+    </div>`;
 
     // 有包明细才做成可展开；没有就当普通行，免得点开一片空白。
     if (!detail) {
-      return `<div class="acct">${head}</div>`;
+      return `<div class="acct"><div class="acct-plain">${head}${actions}</div></div>`;
     }
     return `<details class="acct acct-expandable">
-      <summary class="acct-summary">${head}</summary>
+      <summary class="acct-summary">${head}${actions}</summary>
       <div class="cred-detail">${detail}</div>
     </details>`;
   }).join('');
