@@ -167,6 +167,53 @@ environment:
 
 固定 8787，且**只映射到宿主机回环**（`127.0.0.1:8787:8787`）。外网访问不到。
 
+## 发布流程
+
+版本号只在 `core/version.py` 一处定义。CLI、Web 页面、镜像标签都从它读。
+
+```bash
+# 1. 改版本号（只改这一行）
+vim core/version.py
+
+# 2. 如果改了界面，重新编译并提交产物
+python3 web/build.py
+
+# 3. 提交
+git commit -am "chore: 升到 v0.2.0"
+git push
+
+# 4. 打 tag 并推送 —— 这一步才触发发布
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+**tag 与 `core/version.py` 不一致时 CI 会直接失败**——一个标错版本号的镜像比
+没有镜像更麻烦，你无法从 tag 判断里面到底是什么代码。
+
+### CI 做什么
+
+| 工作流 | 触发 | 内容 |
+|---|---|---|
+| `ci.yml` | 推送 / PR | 跑测试、检查 `web/dist` 与 `web/src` 同步、校验版本号格式、确认没提交数据文件 |
+| `release.yml` | 打 `v*` tag | 校验 tag 一致 → 建 amd64+arm64 镜像推 ghcr.io → 建 GitHub Release |
+
+镜像标签：
+
+```
+ghcr.io/<owner>/buddycron:0.2.0     # 精确版本
+ghcr.io/<owner>/buddycron:0.2       # 次版本
+ghcr.io/<owner>/buddycron:latest
+```
+
+拉取：
+
+```bash
+docker pull ghcr.io/<owner>/buddycron:latest
+```
+
+`web/dist` 是**提交进仓库**的编译产物，CI 会检查它和 `web/src` 是否同步——
+「改了源码忘了重编」在本地看不出来，只有部署后才发现界面是旧的。
+
 ## 日志
 
 界面底部有「日志」区块，按月份切换，每条可展开看每账号的每段细节：

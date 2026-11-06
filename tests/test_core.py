@@ -903,5 +903,42 @@ class LogTests(unittest.TestCase):
         self.assertEqual(len(logs.months()), logs.KEEP_MONTHS)
 
 
+class VersionTests(unittest.TestCase):
+    """版本号。CI 用它校验 tag，页面用它显示，不能有第二个来源。"""
+
+    def test_version_format(self):
+        import re
+        from core import version
+
+        self.assertRegex(version.VERSION, r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+    def test_display_has_v_prefix(self):
+        from core import version
+
+        self.assertEqual(version.display(), f"v{version.VERSION}")
+
+    def test_no_hardcoded_version_elsewhere(self):
+        """版本号只该在 core/version.py 里出现一次。
+
+        散落会导致「镜像标着 0.3.0 但代码里是 0.2.9」——这种不一致比没有版本号更糟。
+        """
+        import re
+        from pathlib import Path
+        from core import version
+
+        root = Path(__file__).resolve().parent.parent
+        offenders = []
+        pattern = re.compile(r"""["']v?[0-9]+\.[0-9]+\.[0-9]+["']""")
+        for path in root.glob("**/*.py"):
+            if "__pycache__" in str(path) or path.name == "version.py":
+                continue
+            for line_no, line in enumerate(
+                path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1
+            ):
+                if pattern.search(line):
+                    offenders.append(f"{path.name}:{line_no}: {line.strip()[:60]}")
+        self.assertEqual(offenders, [], f"发现硬编码版本号：{offenders}")
+
+
 if __name__ == "__main__":
     unittest.main()
