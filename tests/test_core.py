@@ -1424,5 +1424,34 @@ class EnvVarDocsTests(unittest.TestCase):
         self.assertIn("运行时不读取", block)
 
 
+class ScreenshotTests(unittest.TestCase):
+    """README 里引用的截图必须真实存在。
+
+    图片链接失效不会让任何测试失败，但会让首页看起来像半成品。
+    """
+
+    def test_all_referenced_screenshots_exist(self):
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "README.md").read_text(encoding="utf-8")
+        refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
+        self.assertTrue(refs, "README 里没有任何截图引用")
+        missing = [ref for ref in refs if not (root / ref).exists()]
+        self.assertEqual(missing, [], f"引用了不存在的截图：{missing}")
+
+    def test_screenshots_are_reasonably_sized(self):
+        """截图要控制体积。仓库里放几张几 MB 的 PNG 会让 clone 变慢。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        shots = list((root / "docs/screenshots").glob("*"))
+        self.assertGreater(len(shots), 0, "截图目录为空")
+        for path in shots:
+            size = path.stat().st_size
+            self.assertLess(size, 400_000, f"{path.name} 体积 {size} 字节，超过 400KB")
+
+
 if __name__ == "__main__":
     unittest.main()
