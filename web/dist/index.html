@@ -5,6 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BuddyCron · 签到簿</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+  // 主题必须在 CSS 之前定好：CSS 一旦加载就应用配色，此时若 data-theme
+  // 还没设，刷新会先闪一下另一套颜色。放在 <link> 之前同步执行就没这个问题。
+  (function () {
+    try {
+      var saved = localStorage.getItem('buddycron-theme');
+      var theme = saved === 'dark' || saved === 'light'
+        ? saved
+        : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body class="min-h-screen antialiased">
@@ -24,9 +39,14 @@
         每个账号每天盖一个章
       </p>
     </div>
-    <div class="text-right text-[0.72rem] leading-relaxed text-ink-3">
-      <div id="clock" class="font-mono tabular-nums">--:--</div>
-      <div id="store-path" class="mt-0.5 max-w-[11rem] truncate" title=""></div>
+    <div class="flex items-center gap-3 text-right text-[0.72rem] leading-relaxed text-ink-3">
+      <div>
+        <div id="clock" class="font-mono tabular-nums">--:--</div>
+        <div id="store-path" class="mt-0.5 max-w-[11rem] truncate" title=""></div>
+      </div>
+      <button id="btn-theme" class="theme-btn" aria-label="切换明暗主题" title="切换明暗主题">
+        <span class="theme-icon" aria-hidden="true"></span>
+      </button>
     </div>
   </header>
 
@@ -174,6 +194,8 @@
 
   <footer class="mt-12 border-t border-rule pt-4 text-[0.7rem] leading-relaxed text-ink-3">
     非官方工具，与 WorkBuddy / CodeBuddy 无关联。仅用于管理你自己名下的账号。
+    <a href="https://github.com/hmilyld/BuddyCron" target="_blank" rel="noopener"
+       class="footer-link">GitHub</a>
   </footer>
 
 </main>
@@ -924,6 +946,36 @@ async function run(mode, btn) {
     busy.classList.add('hidden');
     document.querySelectorAll('#btn-doctor,#btn-run,#btn-poll').forEach((b) => (b.disabled = false));
   }
+}
+
+// 明暗切换。选择存 localStorage，刷新后保持；首次跟随系统偏好。
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function setTheme(theme, persist) {
+  document.documentElement.setAttribute('data-theme', theme);
+  if (persist) {
+    try {
+      localStorage.setItem('buddycron-theme', theme);
+    } catch {
+      /* 隐私模式下 localStorage 可能不可写，忽略即可 */
+    }
+  }
+}
+
+$('btn-theme').onclick = () => {
+  setTheme(currentTheme() === 'dark' ? 'light' : 'dark', true);
+};
+
+// 系统主题变了就跟随 —— 但只在用户没手动选过时。手动选过就尊重他的选择。
+try {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (event) => {
+    if (localStorage.getItem('buddycron-theme')) return;
+    setTheme(event.matches ? 'dark' : 'light', false);
+  });
+} catch {
+  /* 老浏览器没有 addEventListener 版本，不跟随也可以 */
 }
 
 function tickClock() {

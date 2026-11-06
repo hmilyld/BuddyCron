@@ -3,8 +3,33 @@
 /* 打卡簿的视觉基调：纸面 + 印章。
    不是通用深色仪表盘 —— 这是「每天盖一个章」的账本，所以底色偏纸、
    强调色用朱红（印章），连签用墨绿。三个色都是低饱和，只有「今天已签」
-   那一下才让朱红跳出来。 */
+   那一下才让朱红跳出来。
+
+   明暗两套配色都定义在这里。浅色不是把深色「反相」——纸面在自然光下是
+   暖白而不是冷灰，朱红在白底上要压深一点才够对比度。 */
 @theme {
+  --color-paper: #f7f4ee;
+  --color-paper-2: #efeae0;
+  --color-paper-3: #e5ded0;
+  --color-ink: #221f1a;
+  --color-ink-2: #5d564b;
+  --color-ink-3: #8d8478;
+  --color-rule: #d8d0c2;
+  --color-seal: #b8391f;
+  --color-seal-soft: #c9502f;
+  --color-jade: #3f7a58;
+  --color-jade-soft: #4f8a6b;
+  --color-amber: #96671b;
+  --color-amber-soft: #b8862f;
+
+  --font-sans: "Inter Tight", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* 深色覆盖。用属性选择器而不是 media query —— 用户在界面上切换时，
+   系统偏好不该再覆盖他的选择。 */
+:root[data-theme="dark"] {
   --color-paper: #14120f;
   --color-paper-2: #1c1916;
   --color-paper-3: #252019;
@@ -18,25 +43,31 @@
   --color-jade-soft: #6fae8b;
   --color-amber: #b8862f;
   --color-amber-soft: #d8a94a;
-
-  --font-sans: "Inter Tight", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @layer base {
-  html {
+  :root {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
     color-scheme: dark;
   }
   body {
     background: var(--color-paper);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    /* 纸面的细微纹理：两重极低透明度的径向渐变，避免大片死黑。 */
+    /* 纸面的细微纹理：两重极低透明度的径向渐变，避免一片死色。
+       浅色下这两团颜色要更淡，否则像脏点。 */
+    background-image:
+      radial-gradient(circle at 12% -8%, rgba(200, 68, 44, 0.05), transparent 42%),
+      radial-gradient(circle at 92% 4%, rgba(79, 138, 107, 0.04), transparent 38%);
+    background-attachment: fixed;
+    transition: background-color 220ms ease, color 220ms ease;
+  }
+  :root[data-theme="dark"] body {
     background-image:
       radial-gradient(circle at 12% -8%, rgba(200, 68, 44, 0.07), transparent 42%),
       radial-gradient(circle at 92% 4%, rgba(79, 138, 107, 0.06), transparent 38%);
-    background-attachment: fixed;
   }
   *:focus-visible {
     outline: 2px solid var(--color-seal-soft);
@@ -201,4 +232,69 @@
 .btn-danger:hover:not(:disabled) {
   background: rgba(200, 68, 44, 0.1);
   border-color: transparent;
+}
+
+/* 明暗切换按钮。图标用 CSS 画（太阳 / 月亮），不依赖字体或 SVG 文件 ——
+   一个小按钮不值得多一个 HTTP 请求。 */
+.theme-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  background: var(--color-paper-2);
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+.theme-btn:hover {
+  background: var(--color-paper-3);
+  border-color: var(--color-ink-3);
+}
+/* 太阳：一个圆 + 一圈短射线（用 box-shadow 铺开，省 DOM） */
+.theme-icon {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--color-amber-soft);
+  box-shadow:
+    0 -0.5rem 0 -0.19rem var(--color-amber-soft),
+    0 0.5rem 0 -0.19rem var(--color-amber-soft),
+    0.5rem 0 0 -0.19rem var(--color-amber-soft),
+    -0.5rem 0 0 -0.19rem var(--color-amber-soft);
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+/* 深色下切成月牙：一个圆被另一个同色圆遮住一角 */
+:root[data-theme="dark"] .theme-icon {
+  background: transparent;
+  box-shadow:
+    0.16rem -0.16rem 0 0 var(--color-ink-2),
+    inset 0 0 0 0 transparent;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  position: relative;
+}
+:root[data-theme="dark"] .theme-icon::after {
+  content: "";
+  position: absolute;
+  left: -0.18rem;
+  top: 0.14rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 50%;
+  background: var(--color-paper-2);
+  transition: background-color 200ms ease;
+}
+
+/* 页脚外链。用下划线而不是纯颜色区分 —— 只靠颜色对色觉障碍不友好。 */
+.footer-link {
+  color: var(--color-seal-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 160ms ease;
+}
+.footer-link:hover {
+  color: var(--color-seal);
 }

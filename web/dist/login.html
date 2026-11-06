@@ -5,22 +5,41 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>登录 · BuddyCron</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+  // 必须在 CSS 之前定好主题，否则刷新会闪一下另一套配色。
+  (function () {
+    try {
+      var saved = localStorage.getItem('buddycron-theme');
+      var theme = saved === 'dark' || saved === 'light'
+        ? saved
+        : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body class="min-h-screen antialiased">
 
 <main class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6 py-12">
 
-  <header class="rise mb-8">
-    <div class="flex items-baseline gap-2">
-      <h1 class="text-[1.6rem] font-semibold leading-none tracking-tight text-ink">
-        BuddyCron
-      </h1>
-      <span id="version" class="font-mono text-[0.7rem] text-ink-3"></span>
+  <header class="rise mb-8 flex items-start justify-between gap-4">
+    <div>
+      <div class="flex items-baseline gap-2">
+        <h1 class="text-[1.6rem] font-semibold leading-none tracking-tight text-ink">
+          BuddyCron
+        </h1>
+        <span id="version" class="font-mono text-[0.7rem] text-ink-3"></span>
+      </div>
+      <p class="mt-2.5 text-[0.8rem] leading-relaxed text-ink-2">
+        输入口令进入签到簿
+      </p>
     </div>
-    <p class="mt-2.5 text-[0.8rem] leading-relaxed text-ink-2">
-      输入口令进入签到簿
-    </p>
+    <button id="btn-theme" class="theme-btn" aria-label="切换明暗主题" title="切换明暗主题">
+      <span class="theme-icon" aria-hidden="true"></span>
+    </button>
   </header>
 
   <form id="form" class="rise" style="animation-delay:60ms" novalidate>
@@ -54,12 +73,28 @@
 
   <footer class="mt-10 border-t border-rule pt-4 text-[0.7rem] leading-relaxed text-ink-3">
     非官方工具，与 WorkBuddy / CodeBuddy 无关联。仅用于管理你自己名下的账号。
+    <a href="https://github.com/hmilyld/BuddyCron" target="_blank" rel="noopener"
+       class="footer-link">GitHub</a>
   </footer>
 
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+// 明暗切换。与主页面共用同一个 localStorage 键，切换后两边一致。
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+$('btn-theme').onclick = () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try {
+    localStorage.setItem('buddycron-theme', next);
+  } catch {
+    /* 隐私模式下 localStorage 不可写，忽略 */
+  }
+};
 
 // 版本号在登录页也要显示：用户往往在登录前就想确认「跑的是哪个版本」。
 fetch('/api/version')

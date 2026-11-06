@@ -1169,8 +1169,9 @@ class MergedAccountRowTests(unittest.TestCase):
         self.assertIn("acct-caret", text[actions_idx:actions_idx + 400])
 
         # 不该再有绝对定位的删除按钮 / ::after 箭头
-        css = text[:text.index("<script>")]
-        self.assertNotIn("position: absolute", css.split(".acct-summary {")[1].split(".acct-name")[0])
+        css = text[text.index("<style>") : text.index("</style>")]
+        block = css.split(".acct-summary {")[1].split(".acct-name")[0]
+        self.assertNotIn("position: absolute", block)
 
     def test_padding_on_row_not_container(self):
         """留白必须在 summary 上，不是外层容器。
@@ -1183,11 +1184,13 @@ class MergedAccountRowTests(unittest.TestCase):
 
         root = Path(__file__).resolve().parent.parent
         text = (root / "web/src/index.html").read_text(encoding="utf-8")
-        css = text[:text.index("<script>")]
+        # 只取 <style> 块，避开 head 里的主题脚本和底部的页面脚本
+        css = text[text.index("<style>") : text.index("</style>")]
 
         # .acct 本身不该有 padding（留白交给 summary / acct-plain）
-        block = re.search(r"\.acct \{(.*?)\}", css, re.S).group(1)
-        self.assertNotIn("padding", block)
+        block = re.search(r"\.acct \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(block, "找不到 .acct 规则")
+        self.assertNotIn("padding", block.group(1))
 
         # summary 与 plain 共享一段带 padding 的规则
         shared = re.search(r"\.acct-summary,\s*\.acct-plain \{(.*?)\}", css, re.S)
@@ -1451,6 +1454,58 @@ class ScreenshotTests(unittest.TestCase):
         for path in shots:
             size = path.stat().st_size
             self.assertLess(size, 400_000, f"{path.name} 体积 {size} 字节，超过 400KB")
+
+
+class ThemeTests(unittest.TestCase):
+    """明暗切换。两套配色都在 CSS 变量里，切换只改 data-theme。"""
+
+    def test_both_themes_defined(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        css = (root / "web/src/input.css").read_text(encoding="utf-8")
+        # 浅色在 @theme，深色在 [data-theme="dark"]
+        self.assertIn("--color-paper:", css)
+        self.assertIn(':root[data-theme="dark"]', css)
+        # 关键变量两套都要有，漏一个会让某个元素在深色下「消失」
+        for var in ("--color-paper", "--color-ink", "--color-seal", "--color-rule"):
+            self.assertGreaterEqual(
+                css.count(f"{var}:"), 2, f"{var} 只定义了一套配色"
+            )
+
+    def test_theme_set_before_css_loads(self):
+        """主题必须在 head 里同步设置，否则刷新时会先闪一下另一套配色。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        for name in ("web/src/index.html", "web/src/login.html"):
+            text = (root / name).read_text(encoding="utf-8")
+            head = text[:text.index("</head>")]
+            self.assertIn("data-theme", head, f"{name} 没在 head 里设主题")
+            # 要在 CSS 之前执行
+            css_pos = head.index('href="/assets/app.css"')
+            script_pos = head.index("data-theme")
+            self.assertLess(script_pos, css_pos, f"{name} 的主题脚本在 CSS 之后执行")
+
+    def test_theme_choice_persists(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        for name in ("web/src/index.html", "web/src/login.html"):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIn("buddycron-theme", text, f"{name} 没持久化主题选择")
+
+    def test_both_pages_share_theme_key(self):
+        """两页共用同一个 localStorage 键，否则登录前后配色会跳。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        keys = set()
+        for name in ("web/src/index.html", "web/src/login.html"):
+            text = (root / name).read_text(encoding="utf-8")
+            import re
+            keys.update(re.findall(r"localStorage\.(?:getItem|setItem)\('([^']+)'", text))
+        self.assertEqual(keys, {"buddycron-theme"})
 
 
 if __name__ == "__main__":
