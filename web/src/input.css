@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/* 打卡簿的视觉基调：纸面 + 印章。
+   不是通用深色仪表盘 —— 这是「每天盖一个章」的账本，所以底色偏纸、
+   强调色用朱红（印章），连签用墨绿。三个色都是低饱和，只有「今天已签」
+   那一下才让朱红跳出来。 */
+@theme {
+  --color-paper: #14120f;
+  --color-paper-2: #1c1916;
+  --color-paper-3: #252019;
+  --color-ink: #ece6dc;
+  --color-ink-2: #a89e90;
+  --color-ink-3: #6b6157;
+  --color-rule: #332c24;
+  --color-seal: #c8442c;
+  --color-seal-soft: #e0705a;
+  --color-jade: #4f8a6b;
+  --color-jade-soft: #6fae8b;
+  --color-amber: #b8862f;
+  --color-amber-soft: #d8a94a;
+
+  --font-sans: "Inter Tight", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* 纸面的细微纹理：两重极低透明度的径向渐变，避免大片死黑。 */
+    background-image:
+      radial-gradient(circle at 12% -8%, rgba(200, 68, 44, 0.07), transparent 42%),
+      radial-gradient(circle at 92% 4%, rgba(79, 138, 107, 0.06), transparent 38%);
+    background-attachment: fixed;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-seal-soft);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: rgba(200, 68, 44, 0.3);
+  }
+  /* 尊重系统的减弱动效偏好。 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* 装订线：内容区的左侧竖线，模拟账本的装订边。 */
+  .ledger {
+    position: relative;
+    padding-left: 1.5rem;
+  }
+  .ledger::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.25rem;
+    bottom: 0.25rem;
+    width: 1px;
+    background: var(--color-rule);
+  }
+  @media (max-width: 640px) {
+    .ledger {
+      padding-left: 1rem;
+    }
+  }
+}
+
+/* 一次性的入场：内容整体淡入上移，不做逐块 stagger —— 那不是信息，是噪音。 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* 月历格。固定高度而不是 aspect-ratio —— 一个月 30 多格，
+   按正方形排会让整月占掉一整屏。 */
+.mcell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  border-radius: 0.1875rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  transition: background-color 200ms ease, border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+.mcell-done {
+  background: var(--color-seal);
+  color: #fff6f2;
+  border: 1px solid var(--color-seal);
+  font-weight: 600;
+}
+.mcell-empty {
+  border: 1px solid var(--color-rule);
+  color: var(--color-ink-3);
+  background: var(--color-paper-2);
+}
+/* 周末未签：底色略深。真实日历里周末的节奏不同，签到也常在这两天断，
+   给一点区分能让人一眼看出「断在周末」还是「断在工作日」。 */
+.mcell-weekend {
+  background: var(--color-paper-3);
+}
+.mcell-today {
+  border: 1px solid var(--color-seal-soft);
+  color: var(--color-seal-soft);
+  background: rgba(200, 68, 44, 0.07);
+  font-weight: 600;
+}
+/* 今天单独一圈外描边，任何月份都能立刻定位自己在时间轴哪。 */
+.mcell-ring {
+  box-shadow: 0 0 0 2px rgba(200, 68, 44, 0.22);
+}
+.mcell-future {
+  border: 1px solid transparent;
+  color: #453d34;
+}
+
+/* 积分分组条：一条细横线，长度是「剩余 / 周期总量」。 */
+.cred-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-rule);
+  overflow: hidden;
+}
+.cred-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 260ms ease;
+}
+
+/* 按钮。两页共用，所以放在这里而不是某个页面的内联 style 里。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--color-ink);
+  background: var(--color-paper-2);
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease,
+    color 180ms ease;
+}
+.btn:hover:not(:disabled) {
+  background: var(--color-paper-3);
+  border-color: #463c31;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--color-seal);
+  border-color: var(--color-seal);
+  color: #fff6f2;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #d9523a;
+  border-color: #d9523a;
+}
+.btn-quiet {
+  background: transparent;
+}
+.btn-danger {
+  color: var(--color-seal-soft);
+  border-color: transparent;
+  background: transparent;
+  padding: 0 0.4rem;
+  min-height: 2rem;
+  font-size: 0.75rem;
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(200, 68, 44, 0.1);
+  border-color: transparent;
+}

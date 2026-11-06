@@ -1,0 +1,22 @@
+[Unit]
+Description=BuddyCron Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Codespace/BuddyCron
+# 固定端口 8787，只绑回环。公网访问走 Caddy 反向代理终止 TLS。
+ExecStart=/usr/bin/python3 cli.py web --host 127.0.0.1 --port 8787 --no-browser
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# 公网部署时取消下面三行的注释，并把域名换掉。详见 deploy/PUBLIC.md。
+# Environment=BUDDYCRON_REQUIRE_HTTPS=1
+# Environment=BUDDYCRON_HOSTS=buddy.example.com
+# Environment=BUDDYCRON_TRUST_PROXY=1
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · BuddyCron</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="min-h-screen antialiased">
+
+<main class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6 py-12">
+
+  <header class="rise mb-8">
+    <div class="flex items-baseline gap-2">
+      <h1 class="text-[1.6rem] font-semibold leading-none tracking-tight text-ink">
+        BuddyCron
+      </h1>
+      <span id="version" class="font-mono text-[0.7rem] text-ink-3"></span>
+    </div>
+    <p class="mt-2.5 text-[0.8rem] leading-relaxed text-ink-2">
+      输入口令进入签到簿
+    </p>
+  </header>
+
+  <form id="form" class="rise" style="animation-delay:60ms" novalidate>
+    <label for="pw" class="mb-2 block text-[0.75rem] font-medium text-ink-2">
+      口令
+    </label>
+    <input
+      id="pw"
+      name="password"
+      type="password"
+      autocomplete="current-password"
+      autofocus
+      required
+      placeholder="8 位口令"
+      aria-label="登录口令"
+      aria-describedby="hint err"
+      class="w-full rounded border border-rule bg-paper-2 px-3 py-2.5 font-mono text-[0.9rem] text-ink placeholder:text-ink-3 focus:border-seal-soft"
+    >
+    <p id="hint" class="mt-2 text-[0.72rem] leading-relaxed text-ink-3">
+      首次启动时密码会打印在终端，也写在 <code class="font-mono">~/.buddycron/config.json</code>。
+    </p>
+
+    <p id="err" role="alert" aria-live="polite" class="mt-3 hidden text-[0.78rem] leading-relaxed text-seal-soft"></p>
+
+    <button
+      id="submit"
+      type="submit"
+      class="btn btn-primary mt-6 w-full"
+    >进入</button>
+  </form>
+
+  <footer class="mt-10 border-t border-rule pt-4 text-[0.7rem] leading-relaxed text-ink-3">
+    非官方工具，与 WorkBuddy / CodeBuddy 无关联。仅用于管理你自己名下的账号。
+  </footer>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// 版本号在登录页也要显示：用户往往在登录前就想确认「跑的是哪个版本」。
+fetch('/api/version')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((data) => {
+    if (data && data.display) {
+      const el = $('version');
+      el.textContent = data.display;
+      el.title = `BuddyCron ${data.display}`;
+    }
+  })
+  .catch(() => {});
+
+$('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const btn = $('submit');
+  const err = $('err');
+  const pw = $('pw').value.trim();
+
+  err.classList.add('hidden');
+  if (!pw) {
+    err.textContent = '请输入口令';
+    err.classList.remove('hidden');
+    $('pw').focus();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '验证中…';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`服务返回了非 JSON 内容（HTTP ${res.status}）`);
+    }
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    location.replace('/');
+  } catch (e) {
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = '进入';
+    $('pw').select();
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[Unit]
+Description=BuddyCron 每日签到与成长中心
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Codespace/BuddyCron
+ExecStart=/usr/bin/python3 cli.py run
+# 预算在 runner.DAILY_BUDGET（420 秒），这里留 60 秒余量给解释器启动和落盘。
+# 改这里必须同步改 runner.DAILY_BUDGET，否则跑穿被杀，当天记录整条丢失。
+TimeoutStartSec=480
+# 失败重试一次：刚开机网络没就绪是最常见的失败原因。
+Restart=on-failure
+RestartSec=120
+StandardOutput=journal
+StandardError=journal

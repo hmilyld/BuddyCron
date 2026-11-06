@@ -1,0 +1,53 @@
+name: ci
+
+# 每次推送和 PR 都跑：测试 + 版本号一致性 + 界面产物检查。
+# 发布流程（release.yml）只认 tag，但问题应该在合入前就暴露。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 跑测试
+        run: python3 -m unittest discover -s tests -v
+
+      - name: 检查界面产物与源码同步
+        run: |
+          # web/dist 是提交进仓库的编译产物。如果有人改了 web/src 却忘了
+          # 重新编译，镜像里就会是旧界面 —— 这种问题在本地看不出来，
+          # 只有在部署后才发现。所以这里用「重新编译后比对」来抓。
+          npm ci --silent
+          python3 web/build.py
+          if ! git diff --quiet -- web/dist; then
+            echo "::error::web/dist 与 web/src 不同步。本地跑 python3 web/build.py 并提交产物。"
+            git diff --stat -- web/dist
+            exit 1
+          fi
+
+      - name: 检查版本号格式
+        run: |
+          VERSION=$(python3 -c "import sys; sys.path.insert(0,'.'); from core.version import VERSION; print(VERSION)")
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::core/version.py 的 VERSION 必须是 x.y.z 形态，当前是 $VERSION"
+            exit 1
+          fi
+          echo "版本号：$VERSION"
+
+      - name: 确认没有把数据文件提交进来
+        run: |
+          # accounts.json 含明文 token，绝不能进版本库。
+          if git ls-files | grep -Eq '(^|/)(accounts|config|state)\.json$'; then
+            echo "::error::数据文件被提交了，里面可能含明文 token。"
+            git ls-files | grep -E '(^|/)(accounts|config|state)\.json$'
+            exit 1
+          fi
+          echo "未发现数据文件。"

@@ -1,0 +1,14 @@
+[Unit]
+Description=BuddyCron 补签兜底（每 6 小时）
+
+[Timer]
+# 00:05 那次万一撞上关机、睡眠、或刚开机网络还没就绪，当天就再也没有第二次机会，
+# 连签直接断。每次轮询都先查一次签到状态、未签才补 —— 已签的代价只是一个查询请求，
+# 换来的是一天 4 次机会。接口幂等，不会重复领取。
+OnCalendar=00/6:00:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=buddycron-poll.service
+
+[Install]
+WantedBy=timers.target

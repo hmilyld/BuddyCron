@@ -1,0 +1,67 @@
+services:
+  buddycron:
+    build: .
+    image: buddycron:latest
+    container_name: buddycron
+    restart: unless-stopped
+
+    # 以宿主机用户的 UID/GID 运行。
+    #
+    # 为什么必须这样：./data 挂载进来后，目录属主是宿主机的你（比如 1000:1000）。
+    # 容器里如果换成别的 UID 就写不了 —— 表现为启动即 PermissionError。
+    # 用 `${UID:-1000}` 让 compose 自动取当前用户的 UID，不用手改。
+    #
+    # 如果你不确定自己的 UID，跑 `id -u` 看一下，或直接设环境变量：
+    #   BUDDYCRON_UID=$(id -u) BUDDYCRON_GID=$(id -g) docker compose up -d
+    user: "${BUDDYCRON_UID:-1000}:${BUDDYCRON_GID:-1000}"
+
+    # 只映射到宿主机回环：默认情况下外网访问不到。
+    ports:
+      - "127.0.0.1:8787:8787"
+
+    volumes:
+      # 所有持久化数据都在这一层：账号库、口令配置、日志。
+      # 更新镜像时这个目录不动，所以换版本不会丢账号。
+      - ./data:/data
+
+    environment:
+      BUDDYCRON_HOME: /data
+      # 容器内绑 0.0.0.0 是正常的，暴露面由上面的 ports 控制。
+      BUDDYCRON_IN_CONTAINER: "1"
+      # 时区：签到按本地时间判定「今天」，时区错了会算错日期。
+      TZ: Asia/Shanghai
+
+      # 清掉宿主机带进来的代理变量。
+      #
+      # 为什么必须清：如果你的 shell 里设了 HTTP_PROXY=http://127.0.0.1:7897，
+      # docker 会把它传进容器，而容器里的 127.0.0.1 指向容器自己、不是宿主机，
+      # 结果是所有出站请求 Connection refused。
+      #
+      # 如果你的代理确实需要（服务器在国内且必须走代理），把下面两行删掉，
+      # 改用 host.docker.internal 并加 extra_hosts：
+      #   environment: { HTTP_PROXY: "http://host.docker.internal:7897", ... }
+      #   extra_hosts: ["host.docker.internal:host-gateway"]
+      http_proxy: ""
+      https_proxy: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "*"
+
+      # --- 对外提供服务时取消注释并改成你的域名 ---
+      # BUDDYCRON_REQUIRE_HTTPS: "1"
+      # BUDDYCRON_HOSTS: buddy.example.com
+      # BUDDYCRON_TRUST_PROXY: "1"
+
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import urllib.request,sys
+          r=urllib.request.urlopen('http://127.0.0.1:8787/login',timeout=4)
+          sys.exit(0 if r.status==200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

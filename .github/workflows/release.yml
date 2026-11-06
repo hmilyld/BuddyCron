@@ -1,0 +1,158 @@
+name: release
+
+# 打 tag 才发布：分支推送不该产出对外镜像。
+# 手动触发（workflow_dispatch）需要工作流文件已在默认分支上。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（例如 v0.1.0）"
+        required: true
+
+permissions:
+  contents: write   # 建 Release
+  packages: write   # 推 ghcr.io
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # ---------------------------------------------------------------- 先验证
+  # 版本号不一致、测试不过，就不该产出镜像 —— 一个标错版本号的镜像
+  # 比没有镜像更麻烦：你无法从 tag 判断里面到底是什么代码。
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 校验 tag 与代码里的版本号一致
+        id: check
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION=$(python3 -c "import sys; sys.path.insert(0,'.'); from core.version import VERSION; print(VERSION)")
+          echo "tag=$TAG  code=$VERSION"
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::tag ($TAG) 与 core/version.py 里的版本 (v$VERSION) 不一致。"
+            echo "先改 core/version.py 再重新打 tag。"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 跑测试
+        run: python3 -m unittest discover -s tests -v
+
+      - name: 确认界面产物已提交
+        run: |
+          # web/dist 是编译产物，必须跟着源码一起提交 —— 否则镜像里没有界面。
+          for f in web/dist/index.html web/dist/login.html web/dist/app.css; do
+            if [ ! -f "$f" ]; then
+              echo "::error::缺少 $f，先跑 python3 web/build.py 并提交"
+              exit 1
+            fi
+          done
+
+  # ---------------------------------------------------------------- 建镜像
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # 语义化 tag 同时产出三个标签：完整版本、次版本、latest。
+          # 这样用户既能精确锁定，也能直接拉 latest。
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=BuddyCron
+            org.opencontainers.image.description=WorkBuddy 多账号签到与积分工具
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # amd64 + arm64：服务器可能是 Apple Silicon 或 ARM 云主机。
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # 把版本号烘进镜像，容器内 cli.py version 能读到真实来源。
+          build-args: |
+            BUDDYCRON_VERSION=${{ needs.verify.outputs.version }}
+
+  # ---------------------------------------------------------------- 建 Release
+  release:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: BuddyCron ${{ needs.verify.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ## 镜像
+
+            ```bash
+            docker pull ${{ env.IMAGE }}:${{ needs.verify.outputs.version }}
+            ```
+
+            或直接：
+
+            ```bash
+            docker pull ${{ env.IMAGE }}:latest
+            ```
+
+            ## 快速开始
+
+            ```bash
+            mkdir -p data
+            # 从仓库根目录的 docker-compose.yml 起
+            docker compose up -d
+            docker compose logs -f buddycron   # 首次会打印登录密码
+            ```
+
+            数据都在 `./data`，更新版本时 `docker compose up -d --build` 不会丢账号。
+
+            ## 说明
+
+            非官方工具，与 WorkBuddy / CodeBuddy 无关联。接口从官方前端逆向所得，
+            服务端改版可能失效。仅用于管理你自己名下的账号。

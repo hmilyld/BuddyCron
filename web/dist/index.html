@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BuddyCron · 签到簿</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="min-h-screen antialiased">
+
+<main class="mx-auto w-full max-w-4xl px-5 py-10 sm:py-14">
+
+  <!-- 刊头。产品名 + 一句状态，不做大标题堆叠。 -->
+  <header class="rise mb-9 flex items-end justify-between gap-4 border-b border-rule pb-5">
+    <div>
+      <div class="flex items-baseline gap-2">
+        <h1 class="text-[1.75rem] font-semibold leading-none tracking-tight text-ink">
+          BuddyCron
+        </h1>
+        <span id="version" class="font-mono text-[0.7rem] text-ink-3" title=""></span>
+      </div>
+      <p class="mt-2 text-[0.8rem] leading-relaxed text-ink-2">
+        每个账号每天盖一个章 v2
+      </p>
+    </div>
+    <div class="text-right text-[0.72rem] leading-relaxed text-ink-3">
+      <div id="clock" class="font-mono tabular-nums">--:--</div>
+      <div id="store-path" class="mt-0.5 max-w-[11rem] truncate" title=""></div>
+    </div>
+  </header>
+
+  <!-- 月历 + 合计并排。两块都短，高度天然匹配。
+       逐账号明细与到期日历放到下面整宽 —— 那里才会随账号数增长，
+       塞进侧栏必然变成「右边很长、左边很短」。 -->
+  <div class="grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start">
+
+  <!-- 本月签到。整月日历是这里唯一的视图 —— 一周只有七格，
+       信息量太少，而「这个月签了几天」才是真正想看的。 -->
+  <section class="rise" style="animation-delay:60ms" aria-labelledby="cal-h">
+    <div class="mb-4 flex items-baseline justify-between gap-3">
+      <div class="flex items-baseline gap-2.5">
+        <h2 id="cal-h" class="text-[0.78rem] font-medium text-ink-2">本月签到</h2>
+        <span id="cal-month" class="font-mono text-[0.72rem] text-ink-3"></span>
+      </div>
+      <div class="flex items-baseline gap-1.5">
+        <span id="cal-count" class="font-mono text-[1.35rem] font-semibold leading-none text-jade-soft tabular-nums">–</span>
+        <span id="cal-total" class="pb-0.5 text-[0.72rem] text-ink-3">/ 30</span>
+      </div>
+    </div>
+
+    <div id="month" role="group" aria-label="本月签到记录">
+      <!-- 月历由 JS 填 -->
+    </div>
+
+    <p id="cal-note" class="mt-4 text-[0.75rem] leading-relaxed text-ink-3">
+      正在读取记录…
+    </p>
+  </section>
+
+  <!-- 积分合计：所有账号的汇总 + 最近到期提醒 -->
+  <section id="credits-summary" class="rise hidden" style="animation-delay:100ms" aria-labelledby="cred-h">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <h2 id="cred-h" class="text-[0.78rem] font-medium text-ink-2">积分合计</h2>
+      <span id="cred-count" class="text-[0.72rem] text-ink-3"></span>
+    </div>
+
+    <div class="border-y border-rule py-4">
+      <div class="flex flex-wrap items-baseline gap-x-7 gap-y-3">
+        <div>
+          <div id="cred-remain" class="font-mono text-[1.9rem] font-semibold leading-none text-ink tabular-nums">–</div>
+          <div class="mt-1.5 text-[0.7rem] text-ink-3">可用余额</div>
+        </div>
+        <div>
+          <div id="cred-used" class="font-mono text-[0.95rem] leading-none text-ink-2 tabular-nums">–</div>
+          <div class="mt-1.5 text-[0.7rem] text-ink-3">已用</div>
+        </div>
+        <div>
+          <div id="cred-total" class="font-mono text-[0.95rem] leading-none text-ink-2 tabular-nums">–</div>
+          <div class="mt-1.5 text-[0.7rem] text-ink-3">周期总量</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 到期日历：所有账号所有包的到期日，按时间排。
+         这是「什么时候会损失多少额度」的完整答案，比单个最近到期更有用。 -->
+    <p id="cred-note" class="mt-3 text-[0.72rem] leading-relaxed text-ink-3"></p>
+
+    <!-- 最近到期：积分会过期，不提醒就等于白薅。 -->
+    <div id="cred-expiry" class="mt-4 hidden">
+      <div class="flex items-baseline justify-between gap-3">
+        <span class="text-[0.76rem] text-ink-2">最近到期</span>
+        <span id="cred-expiry-date" class="font-mono text-[0.72rem] text-ink-3"></span>
+      </div>
+      <div class="mt-1.5 flex items-baseline justify-between gap-3">
+        <span id="cred-expiry-name" class="text-[0.72rem] text-ink-3"></span>
+        <span id="cred-expiry-amount" class="font-mono text-[0.85rem] font-semibold text-amber-soft tabular-nums"></span>
+      </div>
+    </div>
+  </section>
+
+  </div>
+
+  <!-- 逐账号积分 + 到期日历。整宽两列：账号多时不会拉成一条长链，
+       到期日历和账号明细并排也刚好填满这一行。 -->
+  <div class="mt-10 grid gap-x-10 gap-y-10 lg:grid-cols-2">
+
+  <section id="credits-accounts" class="rise hidden" style="animation-delay:120ms" aria-labelledby="cred-acc-h">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <h2 id="cred-acc-h" class="text-[0.78rem] font-medium text-ink-2">各账号积分</h2>
+      <span class="text-[0.72rem] text-ink-3">按剩余从少到多</span>
+    </div>
+    <div id="cred-list" class="space-y-4"></div>
+  </section>
+
+  <section id="credits-expiry" class="rise hidden" style="animation-delay:130ms" aria-labelledby="cred-exp-h">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <h2 id="cred-exp-h" class="text-[0.78rem] font-medium text-ink-2">到期日历</h2>
+      <span class="text-[0.72rem] text-ink-3">按时间排</span>
+    </div>
+    <div id="cred-expiry-list" class="space-y-2"></div>
+  </section>
+
+  </div>
+
+  <!-- 账号 -->
+  <section class="rise mt-10" style="animation-delay:140ms" aria-labelledby="acc-h">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <h2 id="acc-h" class="text-[0.78rem] font-medium text-ink-2">
+        账号 <span id="acc-count" class="ml-1 font-mono text-ink-3"></span>
+      </h2>
+      <div class="flex gap-2">
+        <button id="btn-add" class="btn btn-primary">添加账号</button>
+        <button id="btn-refresh" class="btn btn-quiet" aria-label="刷新账号列表">刷新</button>
+      </div>
+    </div>
+
+    <div id="accounts" class="divide-y divide-rule border-y border-rule">
+      <p class="py-6 text-[0.8rem] text-ink-3">正在读取账号…</p>
+    </div>
+
+    <!-- 登录授权。只在点「添加账号」后出现，平时不占版面。 -->
+    <div id="login" class="mt-4 hidden border border-rule bg-paper-2 p-4">
+      <p class="text-[0.8rem] leading-relaxed text-ink-2">
+        在浏览器里登录，这里会自动接住结果。
+      </p>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <a id="login-link" href="#" target="_blank" rel="noopener"
+           class="btn btn-primary">打开登录页</a>
+        <span id="login-timer" class="font-mono text-[0.72rem] text-ink-3"></span>
+      </div>
+      <p id="login-err" class="mt-3 hidden text-[0.75rem] leading-relaxed text-seal-soft"></p>
+    </div>
+  </section>
+
+  <!-- 执行 -->
+  <section class="rise mt-9" style="animation-delay:180ms" aria-labelledby="run-h">
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <h2 id="run-h" class="text-[0.78rem] font-medium text-ink-2">执行</h2>
+      <span id="run-busy" class="hidden font-mono text-[0.72rem] text-amber-soft">运行中…</span>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button id="btn-doctor" class="btn btn-quiet">只读核对</button>
+      <button id="btn-run" class="btn btn-primary">签到 + 成长全套</button>
+      <button id="btn-poll" class="btn btn-quiet">只补签</button>
+    </div>
+    <p class="mt-3 text-[0.72rem] leading-relaxed text-ink-3">
+      第一次先跑「只读核对」：端点契约是从官方前端读出来的，核对通过再跑写操作。
+    </p>
+    <pre id="run-out" class="mono hidden mt-4" tabindex="0" aria-live="polite"></pre>
+  </section>
+
+  <!-- 日志。最近一轮只是日志的最后一条，所以直接并进日志区块 ——
+       同一份数据不做两处展示。 -->
+  <section class="rise mt-9" style="animation-delay:240ms" aria-labelledby="log-h">
+    <div class="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+      <div class="flex items-baseline gap-2.5">
+        <h2 id="log-h" class="text-[0.78rem] font-medium text-ink-2">日志</h2>
+        <span id="log-count" class="font-mono text-[0.72rem] text-ink-3"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <select id="log-month" class="log-select" aria-label="选择月份"></select>
+        <button id="btn-log-refresh" class="btn btn-quiet">刷新</button>
+      </div>
+    </div>
+    <div id="log" class="border-y border-rule">
+      <p class="py-6 text-[0.8rem] text-ink-3">正在读取日志…</p>
+    </div>
+  </section>
+
+  <footer class="mt-12 border-t border-rule pt-4 text-[0.7rem] leading-relaxed text-ink-3">
+    非官方工具，与 WorkBuddy / CodeBuddy 无关联。仅用于管理你自己名下的账号。
+  </footer>
+
+</main>
+
+<style>
+/* 组件类。放在这里而不是 Tailwind 层里，是因为它们是这个页面专属的、
+   有明确语义的构件（印章、账本行），不是可复用的通用组件。 */
+
+.mono {
+  font-family: var(--color-mono);
+  font-size: 0.74rem;
+  line-height: 1.65;
+  color: var(--color-ink-2);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+/* 账号行：左身份、右操作。用账本的横线分隔，不用卡片阴影。 */
+.acct {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 0;
+}
+.acct-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.acct-meta {
+  margin-top: 0.3rem;
+  font-family: var(--color-mono);
+  font-size: 0.7rem;
+  color: var(--color-ink-3);
+  word-break: break-all;
+}
+.acct-state {
+  margin-top: 0.4rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--color-ink-2);
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.66rem;
+  font-weight: 500;
+  padding: 0.12rem 0.4rem;
+  border-radius: 0.1875rem;
+  border: 1px solid currentColor;
+  line-height: 1.4;
+}
+.tag-ok {
+  color: var(--color-jade-soft);
+}
+.tag-warn {
+  color: var(--color-amber-soft);
+}
+.tag-seal {
+  color: var(--color-seal-soft);
+}
+/* 中性标签：只标信息（比如订阅类型），不暗示好坏。 */
+.tag-quiet {
+  color: var(--color-ink-3);
+}
+
+/* 日志行：折叠时只看一行摘要，展开才看细节。
+   summary 做成整行可点，比点那个小三角容易命中。 */
+.log-row {
+  border-bottom: 1px solid var(--color-rule);
+}
+.log-row:last-child {
+  border-bottom: 0;
+}
+.log-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.65rem 0.25rem;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 160ms ease;
+}
+.log-summary::-webkit-details-marker {
+  display: none;
+}
+.log-summary:hover {
+  background: var(--color-paper-2);
+}
+.log-row[open] > .log-summary {
+  background: var(--color-paper-2);
+}
+.log-mode {
+  font-size: 0.7rem;
+  color: var(--color-ink-3);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.1875rem;
+  padding: 0.05rem 0.35rem;
+  line-height: 1.4;
+}
+.log-body {
+  padding: 0.35rem 0.25rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.log-acct {
+  border-left: 2px solid var(--color-rule);
+  padding-left: 0.65rem;
+}
+
+/* 月份选择器。跟按钮同一套视觉，但保留原生下拉的可用性。 */
+.log-select {
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--color-ink);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+.log-select:hover {
+  border-color: #463c31;
+}
+
+/* 最近一轮的每条结果 */
+.result {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 0.3rem 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.result-mark {
+  font-family: var(--color-mono);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  width: 1rem;
+  text-align: center;
+}
+.result-ok .result-mark {
+  color: var(--color-jade-soft);
+}
+.result-fail .result-mark {
+  color: var(--color-seal-soft);
+}
+.result-name {
+  color: var(--color-ink);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.result-text {
+  color: var(--color-ink-2);
+}
+</style>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const DAY = ['一', '二', '三', '四', '五', '六', '日'];
+
+let pollTimer = null;
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`服务返回了非 JSON 内容（HTTP ${res.status}）`);
+  }
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* 月历。按自然月排成日历格，已签的盖朱红章。
+   只用 checkin_dates（签到记录），不用 heatmap 的 score —— 后者是活跃度分数，
+   包含对话、用技能等行为，跟「签到」不是一回事。
+
+   三处让「一眼看出这月签得怎么样」成立的设计：
+     1. 周末两列底色略深：真实日历里周末和工作的节奏不同，签到也常在这两天断。
+     2. 已签格是朱红实心 + 白字，未签是描边，未来几乎不可见 —— 视觉上直接把
+        「已过未签」和「还没到」区分开，不然满屏灰格看不出哪天该补。
+     3. 今天单独加一圈外描边，任何月份都能立刻定位自己在时间轴的哪。 */
+function renderMonth(dates) {
+  const box = $('month');
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // 周一为一周之首
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset = firstDay === 0 ? 6 : firstDay - 1;
+
+  const signed = new Set(dates.map((d) => String(d).slice(0, 10)));
+  const todayStr = toDateStr(now);
+  let count = 0;
+
+  $('cal-month').textContent = `${year} 年 ${month + 1} 月`;
+  $('cal-total').textContent = `/ ${daysInMonth}`;
+
+  // 表头：星期刻度。周六周日用稍亮的颜色，与列底色的区分呼应。
+  let html = `<div class="mb-2 grid grid-cols-7 gap-1.5">
+    ${DAY.map((d, i) => {
+      const weekend = i >= 5;
+      return `<div class="text-center font-mono text-[0.62rem] ${weekend ? 'text-ink-2' : 'text-ink-3'}">${d}</div>`;
+    }).join('')}
+  </div>`;
+  html += `<div class="grid grid-cols-7 gap-1.5">`;
+
+  // 月初的空白格
+  for (let i = 0; i < offset; i += 1) {
+    html += '<div aria-hidden="true"></div>';
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dateStr = toDateStr(new Date(year, month, day));
+    const hit = signed.has(dateStr);
+    const isToday = dateStr === todayStr;
+    const isFuture = dateStr > todayStr;
+    // 列索引决定是不是周末
+    const col = (offset + day - 1) % 7;
+    const weekend = col >= 5;
+    if (hit) count += 1;
+
+    let cls = 'mcell ';
+    let label = `${month + 1} 月 ${day} 日`;
+    if (hit) {
+      cls += 'mcell-done';
+      label += '已签到';
+    } else if (isToday) {
+      cls += 'mcell-today';
+      label += '（今天）未签到';
+    } else if (isFuture) {
+      cls += 'mcell-future';
+      label += '未到';
+    } else {
+      cls += weekend ? 'mcell-empty mcell-weekend' : 'mcell-empty';
+      label += '未签到';
+    }
+    if (isToday) cls += ' mcell-ring';
+
+    html += `<div class="${cls}" title="${label}">
+      <span aria-hidden="true">${day}</span>
+      <span class="sr-only">${label}</span>
+    </div>`;
+  }
+
+  html += '</div>';
+  box.innerHTML = html;
+
+  $('cal-count').textContent = count;
+  const elapsed = Number(todayStr.slice(8)) <= daysInMonth && todayStr.startsWith(
+    `${year}-${String(month + 1).padStart(2, '0')}`
+  ) ? Number(todayStr.slice(8)) : daysInMonth;
+  const missed = elapsed - count;
+  $('cal-note').textContent = count === 0
+    ? `本月还没签到记录。`
+    : `已签 ${count} 天，本月已过 ${elapsed} 天` +
+      (missed > 0 ? `，漏签 ${missed} 天。` : '，没有漏签。');
+}
+
+function toDateStr(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/* 积分。分三块，各自回答不同的问题：
+     合计      我一共有多少额度
+     最近到期  哪笔钱快作废了（积分会过期，不提醒就等于白薅）
+     逐账号    谁快用完了（按剩余从少到多，最需要关注的排最前）
+   拆成独立区块而不是一个大列表：账号一多，混在一起的列表会失去重点。 */
+function renderCredits(accounts) {
+  const num = (v) => Number(v || 0).toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+
+  const withCredits = accounts.filter((a) => a.credits && a.credits.total);
+  const summaryBox = $('credits-summary');
+  const listBox = $('credits-accounts');
+  const expiryBoxSection = $('credits-expiry');
+
+  if (!withCredits.length) {
+    summaryBox.classList.add('hidden');
+    listBox.classList.add('hidden');
+    expiryBoxSection.classList.add('hidden');
+    return;
+  }
+  summaryBox.classList.remove('hidden');
+  listBox.classList.remove('hidden');
+
+  const sumRemain = withCredits.reduce((s, a) => s + Number(a.credits.remain || 0), 0);
+  const sumUsed = withCredits.reduce((s, a) => s + Number(a.credits.used || 0), 0);
+  const sumTotal = sumRemain + sumUsed;
+
+  $('cred-count').textContent = `${withCredits.length} 个账号`;
+  $('cred-remain').textContent = num(sumRemain);
+  $('cred-used').textContent = num(sumUsed);
+  $('cred-total').textContent = num(sumTotal);
+
+  // --- 最近到期：跨所有账号取最早的那一笔 ---
+  const expiries = withCredits
+    .map((a) => a.credits.nearestExpiry)
+    .filter(Boolean)
+    .sort((x, y) => (x.expiresAt || '').localeCompare(y.expiresAt || ''));
+  const expiryBox = $('cred-expiry');
+
+  if (expiries.length) {
+    const first = expiries[0];
+    const days = first.daysLeft;
+    expiryBox.classList.remove('hidden');
+    $('cred-expiry-date').textContent = `${first.expiresAt}（${days >= 0 ? `剩 ${days} 天` : '已过期'}）`;
+    $('cred-expiry-name').textContent = first.name || '';
+    $('cred-expiry-amount').textContent = num(first.remain);
+    // 7 天内到期用告警色：那已经是「再不用就没了」的时间尺度。
+    $('cred-expiry-amount').classList.toggle('text-amber-soft', days <= 7);
+    $('cred-expiry-amount').classList.toggle('text-seal-soft', days < 0);
+  } else {
+    expiryBox.classList.add('hidden');
+  }
+
+  // --- 到期日历：把所有账号的包级到期日摊平，按时间排 ---
+  const allPackages = [];
+  for (const account of withCredits) {
+    for (const pack of account.credits.packages || []) {
+      if (!pack.expiresAt || Number(pack.remain || 0) <= 0) continue;
+      allPackages.push({
+        ...pack,
+        account: account.nickname || account.uid || '未命名',
+      });
+    }
+  }
+  allPackages.sort((x, y) => x.expiresAt.localeCompare(y.expiresAt));
+
+  const allBox = $('credits-expiry');
+  if (allPackages.length) {
+    allBox.classList.remove('hidden');
+    $('cred-expiry-list').innerHTML = allPackages.map((p) => {
+      const d = p.daysLeft;
+      const urgent = typeof d === 'number' && d <= 7;
+      const expired = typeof d === 'number' && d < 0;
+      const tone = expired ? 'text-seal-soft' : (urgent ? 'text-amber-soft' : 'text-ink-2');
+      const tail = expired ? '已过期' : (typeof d === 'number' ? `剩 ${d} 天` : '');
+      const pct = p.total > 0 ? Math.max(0, Math.min(100, (p.remain / p.total) * 100)) : 0;
+      return `<div class="border-l-2 ${urgent || expired ? 'border-seal-soft' : 'border-rule'} pl-3">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <span class="font-mono text-[0.72rem] ${tone}">${esc(p.expiresAt)}</span>
+          <span class="font-mono text-[0.78rem] font-semibold ${tone} tabular-nums">${num(p.remain)}</span>
+        </div>
+        <div class="mt-0.5 flex items-baseline justify-between gap-3 text-[0.68rem] text-ink-3">
+          <span class="min-w-0 truncate">${esc(p.account)} · ${esc(p.name)}</span>
+          <span class="shrink-0 font-mono">${tail}</span>
+        </div>
+        <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${urgent || expired ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)'}"></span></div>
+      </div>`;
+    }).join('');
+  } else {
+    allBox.classList.add('hidden');
+  }
+
+  // --- 逐账号：按剩余从少到多 ---
+  const sorted = [...withCredits].sort(
+    (a, b) => Number(a.credits.remain || 0) - Number(b.credits.remain || 0)
+  );
+
+  $('cred-list').innerHTML = sorted.map((a) => {
+    const c = a.credits;
+    const cap = Number(c.remain || 0) + Number(c.used || 0);
+    const pct = cap > 0 ? Math.max(0, Math.min(100, (Number(c.remain || 0) / cap) * 100)) : 0;
+    // 剩余不到 10% 时条子转告警色：这个账号马上就要用不了了。
+    const low = pct < 10;
+    const barColor = low ? 'var(--color-seal-soft)' : 'var(--color-jade-soft)';
+
+    const nearest = c.nearestExpiry;
+    const expiryText = nearest
+      ? `${nearest.expiresAt} 到期`
+      : '';
+
+    return `<div class="border-l-2 border-rule pl-3">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <div class="flex items-baseline gap-2">
+          <span class="text-[0.82rem] font-semibold text-ink">${esc(a.nickname || a.uid || '未命名')}</span>
+          ${c.plan ? `<span class="tag tag-quiet">${esc(c.plan)}</span>` : ''}
+        </div>
+        <div class="flex items-baseline gap-1.5">
+          <span class="font-mono text-[0.95rem] font-semibold ${low ? 'text-seal-soft' : 'text-ink'} tabular-nums">${num(c.remain)}</span>
+          <span class="font-mono text-[0.68rem] text-ink-3 tabular-nums">/ ${num(cap)}</span>
+        </div>
+      </div>
+      <div class="cred-bar mt-1.5"><span style="width:${pct}%;background:${barColor}"></span></div>
+      ${expiryText ? `<div class="mt-1.5 font-mono text-[0.66rem] text-ink-3">${expiryText}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const at = withCredits[0].credits.at
+    ? new Date(withCredits[0].credits.at).toLocaleString('zh-CN', { hour12: false })
+    : '';
+  $('cred-note').textContent = at ? `更新于 ${at}` : '';
+}
+
+function renderAccounts(accounts) {
+  const box = $('accounts');
+  $('acc-count').textContent = accounts.length ? `(${accounts.length})` : '';
+
+  if (!accounts.length) {
+    box.innerHTML = `<p class="py-6 text-[0.8rem] leading-relaxed text-ink-3">
+      还没有账号。点「添加账号」，在浏览器里登录一次即可。</p>`;
+    return;
+  }
+
+  box.innerHTML = accounts.map((a) => {
+    const tags = [];
+    if (a.needsRelogin) {
+      tags.push('<span class="tag tag-seal" title="' + esc(a.needsReloginReason) + '">需重新登录</span>');
+    }
+    if (a.agreedAt) tags.push('<span class="tag tag-ok">已同意规则</span>');
+
+    const state = a.lastCheckinResult
+      ? `${esc(a.lastCheckinDate || '')} · ${esc(a.lastCheckinResult)} · ${esc(a.lastCheckinMessage || '')}`
+      : '今日未签';
+
+    return `<div class="acct">
+      <div class="min-w-0 flex-1">
+        <div class="acct-name">${esc(a.nickname || a.uid || '未命名')}${tags.join('')}</div>
+        <div class="acct-meta">${esc(a.uid || a.id)}${a.domain ? ' · ' + esc(a.domain) : ''}</div>
+        <div class="acct-state">${state}</div>
+      </div>
+      <div class="flex flex-col items-end gap-1.5">
+        <button class="btn btn-danger" data-del="${esc(a.id)}">删除</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('[data-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      const name = btn.closest('.acct').querySelector('.acct-name').textContent.trim();
+      if (!confirm(`删除「${name}」？本地凭证会一起移除。`)) return;
+      btn.disabled = true;
+      try {
+        await api('/api/accounts/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: btn.dataset.del }),
+        });
+        await loadAccounts();
+      } catch (e) {
+        btn.disabled = false;
+        alert(e.message);
+      }
+    };
+  });
+}
+
+async function loadAccounts() {
+  try {
+    const data = await api('/api/accounts');
+    renderAccounts(data.accounts);
+    renderCredits(data.accounts);
+
+    // 月历取所有账号的签到并集：多账号时只要有一个账号那天签过，就算这天有记录。
+    const allDates = new Set();
+    for (const account of data.accounts) {
+      for (const date of account.checkinDates || []) {
+        allDates.add(String(date).slice(0, 10));
+      }
+    }
+    renderMonth([...allDates]);
+  } catch (e) {
+    $('accounts').innerHTML =
+      `<p class="py-6 text-[0.8rem] text-seal-soft">读取账号失败：${esc(e.message)}</p>`;
+    if (e.message.includes('未登录')) location.replace('/login');
+  }
+}
+
+/* 日志。一条记录 = 一轮运行。
+   折叠起来只看「时间 / 模式 / 成功数」，展开能看到每账号的每段细节 ——
+   汇总一句话在出问题时完全不够定位，所以细节必须可展开。 */
+async function loadLogs(month) {
+  const box = $('log');
+  try {
+    const params = new URLSearchParams({ limit: '50' });
+    if (month) params.set('month', month);
+    const data = await api('/api/logs?' + params.toString());
+
+    // 月份选择器：只在首次或月份列表变化时重建，避免重置用户的选择
+    const select = $('log-month');
+    const months = data.months || [];
+    if (select.dataset.months !== months.join(',')) {
+      select.dataset.months = months.join(',');
+      select.innerHTML = months.length
+        ? months.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('')
+        : '<option value="">无日志</option>';
+      select.value = data.current || (months[0] || '');
+    }
+
+    const records = data.records || [];
+    $('log-count').textContent = records.length ? `${records.length} 条` : '';
+
+    if (!records.length) {
+      box.innerHTML =
+        '<p class="py-6 text-[0.8rem] leading-relaxed text-ink-3">这个月还没有记录。跑一次「签到 + 成长全套」就有了。</p>';
+      return;
+    }
+
+    box.innerHTML = records.map((record, index) => {
+      const when = record.ts
+        ? new Date(record.ts).toLocaleString('zh-CN', { hour12: false })
+        : '';
+      const modeLabel = { daily: '全套', poll: '补签', checkin: '签到' }[record.mode] || record.mode || '';
+      const ok = Number(record.failed || 0) === 0;
+
+      const accounts = (record.accounts || []).map((a) => {
+        const detail = [];
+
+        if (a.checkin) {
+          const c = a.checkin;
+          detail.push(`签到 ${esc(c.result || '')}` +
+            (c.credit ? ` +${esc(String(c.credit))} 积分` : '') +
+            (c.streakDays != null ? ` · 连签 ${esc(String(c.streakDays))} 天` : ''));
+        }
+        if (a.growth) {
+          const g = a.growth;
+          if (g.credit) detail.push(`成长 +${esc(String(g.credit))} 积分`);
+          for (const [key, section] of Object.entries(g.sections || {})) {
+            if (!section || section.state === 'skip') continue;
+            const name = {
+              travel: '旅行', tasks: '任务', makeup: '补登', redeem: '兑换',
+              lottery: '抽奖', buddy: '盲盒', depart: '派出',
+            }[key] || key;
+            detail.push(`${name}：${esc(section.message || '')}`);
+          }
+        }
+        if (a.extras && a.extras.state === 'ok') {
+          detail.push(`礼包/补偿：${esc(a.extras.message || '')}`);
+        }
+        if (a.credits) {
+          detail.push(`余额 ${esc(String(a.credits.remain))}${a.credits.plan ? ` · ${esc(a.credits.plan)}` : ''}`);
+        }
+        if (a.error) detail.push(`<span class="text-seal-soft">异常：${esc(a.error)}</span>`);
+
+        return `<div class="log-acct">
+          <div class="flex items-baseline gap-2">
+            <span class="result-mark ${a.ok ? 'text-jade-soft' : 'text-seal-soft'}" aria-hidden="true">${a.ok ? '✓' : '✗'}</span>
+            <span class="text-[0.8rem] font-semibold text-ink">${esc(a.account)}</span>
+          </div>
+          <div class="mt-1 space-y-0.5 pl-6">
+            ${detail.map((d) => `<div class="text-[0.72rem] leading-relaxed text-ink-3">${d}</div>`).join('')}
+            ${a.message ? `<div class="mt-1 text-[0.72rem] leading-relaxed text-ink-2">${esc(a.message)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+
+      return `<details class="log-row" ${index === 0 ? 'open' : ''}>
+        <summary class="log-summary">
+          <span class="font-mono text-[0.72rem] text-ink-3">${esc(when)}</span>
+          <span class="log-mode">${esc(modeLabel)}</span>
+          <span class="font-mono text-[0.72rem] ${ok ? 'text-jade-soft' : 'text-seal-soft'}">
+            ${esc(String(record.succeeded ?? 0))}/${esc(String(record.total ?? 0))}
+          </span>
+        </summary>
+        <div class="log-body">${accounts || '<div class="text-[0.72rem] text-ink-3">没有账号记录</div>'}</div>
+      </details>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML =
+      `<p class="py-6 text-[0.8rem] text-seal-soft">读取日志失败：${esc(e.message)}</p>`;
+  }
+}
+
+async function startLogin() {
+  const btn = $('btn-add');
+  const box = $('login');
+  const err = $('login-err');
+  btn.disabled = true;
+  err.classList.add('hidden');
+  try {
+    const data = await api('/api/login/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (!data.ok) throw new Error(data.error || '发起登录失败');
+    box.classList.remove('hidden');
+    $('login-link').href = data.authUrl;
+    $('login-link').classList.remove('hidden');
+    window.open(data.authUrl, '_blank', 'noopener');
+    pollLogin(data.loginId);
+  } catch (e) {
+    box.classList.remove('hidden');
+    $('login-link').classList.add('hidden');
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function pollLogin(loginId) {
+  if (pollTimer) clearInterval(pollTimer);
+  let left = 600;
+  const timer = $('login-timer');
+  pollTimer = setInterval(async () => {
+    left -= 2;
+    timer.textContent = left > 0 ? `${left} 秒内完成` : '已超时，请重试';
+    if (left <= 0) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      return;
+    }
+    try {
+      const data = await api('/api/login/poll?loginId=' + encodeURIComponent(loginId));
+      if (!data.ok) throw new Error(data.error || '轮询失败');
+      if (data.done) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        timer.textContent = '';
+        if (data.status === 'ok') {
+          $('login').classList.add('hidden');
+          await loadAccounts();
+        } else {
+          $('login-err').textContent = data.error || '登录未完成';
+          $('login-err').classList.remove('hidden');
+        }
+      }
+    } catch (e) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      timer.innerHTML = `<span class="text-seal-soft">${esc(e.message)}</span>`;
+    }
+  }, 2000);
+}
+
+async function run(mode, btn) {
+  const out = $('run-out');
+  const busy = $('run-busy');
+  out.classList.remove('hidden');
+  out.textContent = '执行中…';
+  busy.classList.remove('hidden');
+  document.querySelectorAll('#btn-doctor,#btn-run,#btn-poll').forEach((b) => (b.disabled = true));
+  try {
+    if (mode === 'doctor') {
+      const data = await api('/api/doctor');
+      out.textContent = data.text || JSON.stringify(data.report, null, 2);
+    } else {
+      const data = await api('/api/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      if (!data.ok) throw new Error(data.error || '执行失败');
+      out.textContent = (data.accounts || [])
+        .map((a) => `${a.ok ? '✓' : '✗'} ${a.label}\n  ${a.message || ''}`)
+        .join('\n\n') || '没有账号';
+      await loadLogs();
+      await loadAccounts();
+    }
+  } catch (e) {
+    out.textContent = e.message;
+  } finally {
+    busy.classList.add('hidden');
+    document.querySelectorAll('#btn-doctor,#btn-run,#btn-poll').forEach((b) => (b.disabled = false));
+  }
+}
+
+function tickClock() {
+  const now = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  $('clock').textContent = `${p(now.getHours())}:${p(now.getMinutes())}`;
+}
+
+// 版本号。拉不到就不显示 —— 它是辅助信息，不该因为网络抖动在标题旁留个占位。
+async function loadVersion() {
+  try {
+    const data = await api('/api/version');
+    if (data && data.display) {
+      const el = $('version');
+      el.textContent = data.display;
+      el.title = `BuddyCron ${data.display}`;
+    }
+  } catch {
+    /* 忽略：版本号不是功能依赖 */
+  }
+}
+
+$('btn-add').onclick = startLogin;
+$('btn-refresh').onclick = () => { loadAccounts(); loadLogs(); };
+$('btn-log-refresh').onclick = () => loadLogs($('log-month').value);
+$('log-month').onchange = () => loadLogs($('log-month').value);
+$('btn-doctor').onclick = (e) => run('doctor', e.currentTarget);
+$('btn-run').onclick = (e) => run('daily', e.currentTarget);
+$('btn-poll').onclick = (e) => run('poll', e.currentTarget);
+
+tickClock();
+setInterval(tickClock, 30_000);
+loadVersion();
+loadAccounts();
+loadLogs();
+</script>
+</body>
+</html>

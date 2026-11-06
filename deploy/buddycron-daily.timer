@@ -1,0 +1,13 @@
+[Unit]
+Description=BuddyCron 每日签到（00:05）
+
+[Timer]
+OnCalendar=*-*-* 00:05:00
+# 关机 / 休眠错过后开机自动补跑。这一条直接干掉了「00:05 没跑成 = 断签」。
+Persistent=true
+# 随机延迟 0~10 分钟：多个账号串行时不必和整点撞车。
+RandomizedDelaySec=600
+Unit=buddycron-daily.service
+
+[Install]
+WantedBy=timers.target

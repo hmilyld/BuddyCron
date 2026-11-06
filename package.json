@@ -1,0 +1,9 @@
+{
+  "name": "buddycron-web",
+  "private": true,
+  "description": "BuddyCron 的界面构建。仅开发时需要 Node；运行侧用编译好的 web/dist。",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}
